@@ -1,0 +1,14 @@
+# I only have a Taskfile.yml because my editor can use them to
+# run tasks from within with just a keypress. This isn't required,
+# all of the build steps are invoked in build.jai.
+
+version: '3'
+
+tasks:
+  default:
+    - task: build-hotreload-library
+
+  build-hotreload-library:
+    cmds:
+      - jai build.jai - debug_hot_library
+

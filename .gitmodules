@@ -1,0 +1,24 @@
+[submodule "modules/JaiPhysX"]
+	path = modules/JaiPhysX
+	url = https://github.com/wrapperup/JaiPhysX/
+[submodule "modules/gltf_parser"]
+	path = modules/gltf_parser
+	url = https://github.com/wrapperup/gltf_parser
+[submodule "modules/miniaudio-jai"]
+	path = modules/miniaudio-jai
+	url = https://github.com/kooparse/miniaudio-jai/
+[submodule "modules/jai-vulkan"]
+	path = modules/jai-vulkan
+	url = https://gitlab.com/Wrapperup/jai-vulkan
+[submodule "modules/slang-jai"]
+	path = modules/slang-jai
+	url = https://github.com/wrapperup/slang-jai
+[submodule "modules/jai-vma"]
+	path = modules/jai-vma
+	url = https://gitlab.com/Stowy/jai-vma
+[submodule "modules/jai-imgui"]
+	path = modules/jai-imgui
+	url = https://gitlab.com/Stowy/jai-imgui
+[submodule "modules/jai-libktx"]
+	path = modules/jai-libktx
+	url = https://github.com/wrapperup/jai-libktx/

@@ -1,0 +1,79 @@
+import bindless;
+import consts;
+import types;
+
+// 9 imad (+ 6 iops with final shuffle) -- https://vkguide.dev
+uint3 pcg_3d(uint3 v) {
+
+  v = v * 1664525u + 1013904223u;
+
+  v.x += v.y * v.z;
+  v.y += v.z * v.x;
+  v.z += v.x * v.y;
+
+  v ^= v >> 16u;
+
+  v.x += v.y * v.z;
+  v.y += v.z * v.x;
+  v.z += v.x * v.y;
+
+  return v;
+}
+
+float shadow_calc(float4 shadow_coord, float cascade, float2 offset = 0.0,
+                  float bias) {
+  // perform perspective divide
+  float3 proj_coords = shadow_coord.xyz / shadow_coord.w;
+
+  let shadow = SHADOW_ID.sample_cmp_level_zero(
+      SHADOW_SAMPLER_ID, Vec3(proj_coords.xy + offset, cascade),
+      proj_coords.z - bias);
+
+  return shadow;
+}
+
+float filter_pcf(float2 screen_pos, float4 shadow_coord, float cascade,
+                 float bias, float slope_bias, float NoL) {
+  int2 texDim;
+  int elems;
+  SHADOW_ID.get_dimensions(texDim.x, texDim.y, elems);
+
+  if (shadow_coord.x < 0 || shadow_coord.x > 1) {
+    return 1.f;
+  }
+
+  if (shadow_coord.y < 0 || shadow_coord.y > 1) {
+    return 1.f;
+  }
+
+  float scale = (0.001f / ((1.5f * cascade) + 1.f));
+  float dx = scale * 1.0;
+  float dy = scale * 1.0;
+
+  float shadow_factor = 0.0;
+  int count = 0;
+  int range = 2;
+
+  uint4 u = uint4(uint2(screen_pos), uint(screen_pos.x) ^ uint(screen_pos.y),
+                  uint(screen_pos.x) + uint(screen_pos.y));
+  float3 rand = pcg_3d(u.xyz);
+  rand = normalize(rand);
+
+  float2 dirA = normalize(rand.xy);
+  float2 dirB = normalize(float2(-dirA.y, dirA.x));
+
+  dirA *= dx;
+  dirB *= dy;
+
+  float totalBias = bias + slope_bias * tan(acos(NoL));
+
+  for (int x = -range; x <= range; x++) {
+    for (int y = -range; y <= range; y++) {
+      shadow_factor +=
+          shadow_calc(shadow_coord, cascade, dirA * x + dirB * y, totalBias);
+      count++;
+    }
+  }
+
+  return shadow_factor / count;
+}
