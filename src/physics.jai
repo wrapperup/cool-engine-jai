@@ -57,3 +57,45 @@ query_raycast_single :: (
 
 	return hit.block, ok;
 }
+
+collision_filter_shader :: (
+	attributes0: *u32,
+	filterData0: *PxFilterData,
+	attributes1: *u32,
+	filterData1: *PxFilterData,
+	pairFlags: *PxPairFlags
+) -> u16 #c_call {
+	pairFlags.* = .SolveContact | .DetectDiscreteContact | .NotifyTouchFound;
+
+	return 0;
+}
+
+collision_callback :: (user_data: *void, pair_header: *PxContactPairHeader, pairs: *PxContactPair, nb_pairs: u32) #c_call {
+	// push_context {
+	// 	 log("collide");
+	// }
+}
+
+trigger_callback :: (user_data: *void, pairs: *PxTriggerPair, nb_pairs: u32) #c_call {
+	// push_context {
+	// 	log("trigger");
+	// }
+}
+
+constraint_break_callback :: (user_data: *void, constraints: *PxConstraintInfo, nb_pairs: u32) #c_call {
+	// push_context {
+	// 	log("constraint break");
+	// }
+}
+
+wake_sleep_callback :: (user_data: *void, actors: **PxActor, count: u32, is_wake: bool) #c_call {
+	// push_context {
+	// 	log("wake_sleep: %", is_wake);
+	// }
+}
+
+advance_callback :: (user_data: *void, body_buffer: **PxRigidBody, pose_buffer: *PxTransform, count: u32) #c_call {
+	// push_context {
+	// 	log("advance");
+	// }
+}

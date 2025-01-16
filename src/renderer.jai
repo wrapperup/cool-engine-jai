@@ -1,3 +1,4 @@
+// TODO: Un-hard code this stuff.
 SHADOW_ID: TextureId : 0;
 TONY_MC_MAPFACE_ID: TextureId : 1;
 DFG_ID: TextureId : 2;
@@ -337,7 +338,7 @@ init_bindless_descriptors :: () {
 	write_builtin_bindless_descriptors();
 }
 
-// TODO: Automate this shit
+// TODO: Automate this shit, there's no need to have any of this hard-coded.
 write_builtin_bindless_descriptors :: () {
 	tony_mc_mapface := game.render_state.temp_resources.tony_mc_mapface;
 	dfg := game.render_state.temp_resources.dfg;
@@ -346,21 +347,18 @@ write_builtin_bindless_descriptors :: () {
 	shadow_depth_sampler := game.render_state.temp_resources.shadow_depth_sampler;
 	env_sampler := game.render_state.temp_resources.env_sampler;
 
-	write_descriptor_set(
-		game.render_state.bindless_descriptor_set,
-		.[
-			.{ binding = 0, type = .SAMPLED_IMAGE, image_view = game.render_state.shadow_depth_image.view, image_layout = .DEPTH_READ_ONLY_OPTIMAL, array_index = SHADOW_ID },
-			.{ binding = 0, type = .SAMPLED_IMAGE, image_view = tony_mc_mapface.view, image_layout = .READ_ONLY_OPTIMAL, array_index = TONY_MC_MAPFACE_ID },
-			.{ binding = 0, type = .SAMPLED_IMAGE, image_view = dfg.view, image_layout = .READ_ONLY_OPTIMAL, array_index = DFG_ID },
-			.{ binding = 0, type = .SAMPLED_IMAGE, image_view = env.view, image_layout = .READ_ONLY_OPTIMAL, array_index = ENVIRONMENT_MAP_ID },
+	write_descriptor_set(game.render_state.bindless_descriptor_set, .[
+		.{ binding = 0, type = .SAMPLED_IMAGE, image_view = game.render_state.shadow_depth_image.view, image_layout = .DEPTH_READ_ONLY_OPTIMAL, array_index = SHADOW_ID },
+		.{ binding = 0, type = .SAMPLED_IMAGE, image_view = tony_mc_mapface.view, image_layout = .READ_ONLY_OPTIMAL, array_index = TONY_MC_MAPFACE_ID },
+		.{ binding = 0, type = .SAMPLED_IMAGE, image_view = dfg.view, image_layout = .READ_ONLY_OPTIMAL, array_index = DFG_ID },
+		.{ binding = 0, type = .SAMPLED_IMAGE, image_view = env.view, image_layout = .READ_ONLY_OPTIMAL, array_index = ENVIRONMENT_MAP_ID },
 
-			.{ binding = 1, type = .SAMPLER, sampler = mesh_image_sampler, image_layout = .READ_ONLY_OPTIMAL, array_index = DEFAULT_SAMPLER_ID },
-			.{ binding = 1, type = .SAMPLER, sampler = shadow_depth_sampler, image_layout = .DEPTH_READ_ONLY_OPTIMAL, array_index = SHADOW_SAMPLER_ID },
-			.{ binding = 1, type = .SAMPLER, sampler = env_sampler, image_layout = .READ_ONLY_OPTIMAL, array_index = ENVIRONMENT_SAMPLER_ID },
+		.{ binding = 1, type = .SAMPLER, sampler = mesh_image_sampler, image_layout = .READ_ONLY_OPTIMAL, array_index = DEFAULT_SAMPLER_ID },
+		.{ binding = 1, type = .SAMPLER, sampler = shadow_depth_sampler, image_layout = .DEPTH_READ_ONLY_OPTIMAL, array_index = SHADOW_SAMPLER_ID },
+		.{ binding = 1, type = .SAMPLER, sampler = env_sampler, image_layout = .READ_ONLY_OPTIMAL, array_index = ENVIRONMENT_SAMPLER_ID },
 
-			.{ binding = 2, type = .STORAGE_IMAGE, image_view = r_ctx.resolve_image.view, image_layout = .GENERAL },
-		]
-	);
+		.{ binding = 2, type = .STORAGE_IMAGE, image_view = r_ctx.resolve_image.view, image_layout = .GENERAL },
+	]);
 }
 
 init_pipelines :: () {

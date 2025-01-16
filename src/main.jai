@@ -11,8 +11,7 @@
 #import "jai-vulkan";
 #import "slang-jai";
 
-// TODO: Make this a module
-#load "./gfx/module.jai";
+#import,file "./gfx/module.jai";
 
 #load "config.jai";
 #load "dfg.jai";
@@ -151,24 +150,27 @@ game_init :: (del_queue_to_use: **Deletion_Queue) {
 
 		PX_PHYSICS_VERSION :: ((PX_PHYSICS_VERSION_MAJOR << 24) + (PX_PHYSICS_VERSION_MINOR << 16) + (PX_PHYSICS_VERSION_BUGFIX << 8) + 0);
 
-		game.phys.foundation = PxCreateFoundation(PX_PHYSICS_VERSION, get_default_allocator(), get_default_error_callback());
+		game.phys.foundation = create_foundation();
 		game.phys.dispatcher = PxDefaultCpuDispatcherCreate(1, null, .WaitForWork, 0);
 		game.phys.physics = create_physics(game.phys.foundation);
 
-		// callback_info := PxSimulationEventCallbackInfo.{
-		// 	collisionCallback       = collision_callback,
-		// 	triggerCallback         = trigger_callback,
-		// 	constraintBreakCallback = constraint_break_callback,
-		// 	wakeSleepCallback       = wake_sleep_callback,
-		// 	advanceCallback         = advance_callback,
-		// };
-		//
-		// callback := create_simulation_event_callbacks(*callback_info);
+		callback_info := SimulationEventCallbackInfo.{
+			collisionCallback       = collision_callback,
+			triggerCallback         = trigger_callback,
+			constraintBreakCallback = constraint_break_callback,
+			wakeSleepCallback       = wake_sleep_callback,
+			advanceCallback         = advance_callback,
+		};
+
+		callback := create_simulation_event_callbacks(*callback_info);
 
 		scene_desc := PxSceneDesc_new(*PxTolerancesScale_new(1.0, 10.0));
 		scene_desc.gravity = PxVec3_new(0.0, -9.81 * 2, 0.0);
 		scene_desc.cpuDispatcher = cast(*PxCpuDispatcher, game.phys.dispatcher);
-		// scene_desc.simulationEventCallback = callback;
+		scene_desc.simulationEventCallback = callback;
+
+		filter_handle := create_custom_filter_shader(collision_filter_shader);
+		set_custom_filter_shader(*scene_desc, filter_handle);
 
 		game.phys.scene = PxPhysics_createScene(game.phys.physics, *scene_desc);
 
@@ -186,28 +188,31 @@ game_init :: (del_queue_to_use: **Deletion_Queue) {
 		player.translation = .{3, 3.7, 5};
 		player.camera_fov_deg = 65;
 
-		// skeleton, anim, ok := load_skel_mesh_from_file("assets/meshes/skel/skeltest2.glb");
-		// assert(ok);
-		// defer_destroy(skeleton.buffers);
-		//
-		// // LEAK: Needs asset system.
-		// skel_ptr := New(Skeleton);
-		// skel_ptr.* = skeleton;
-		//
-		// // LEAK: Needs asset system.
-		// anim_ptr := New(SkeletalAnimation);
-		// anim_ptr.* = anim;
-		//
-		// grid_size := 3;
-		//
-		// for i: 0 .. grid_size-1 {
-		// 	for j: 0 .. grid_size-1 {
-		// 		for k: 0 .. grid_size-1 {
-		// 			ball := new_entity(Ball);
-		// 			init_ball(ball, .{xx (i * 3), xx (j * 3), xx (k * 3)}, .{}, skel_ptr, anim_ptr);
-		// 		}
-		// 	}
-		// }
+		skeleton, anim, ok := load_skel_mesh_from_file("assets/meshes/skel/skeltest2.glb");
+		assert(ok);
+		defer_destroy(skeleton.buffers);
+
+		// LEAK: Needs asset system.
+		skel_ptr := New(Skeleton);
+		skel_ptr.* = skeleton;
+
+		// LEAK: Needs asset system.
+		anim_ptr := New(SkeletalAnimation);
+		anim_ptr.* = anim;
+
+		grid_size := 3;
+
+		for i: 0 .. grid_size-1 {
+			for j: 0 .. grid_size-1 {
+				for k: 0 .. grid_size-1 {
+					ball := new_entity(Ball);
+					init(ball, .{xx (i * 3), xx (j * 3), xx (k * 3)}, skel_ptr, anim_ptr);
+				}
+			}
+		}
+
+		ball := new_entity(Ball);
+		init(ball, .{0, 0, 0}, skel_ptr, anim_ptr);
 
 		test_mesh := new_entity(StaticMesh);
 		init(test_mesh, "assets/meshes/static/map_test.glb", 0);
@@ -265,6 +270,7 @@ game_pre_hotreload :: (mem: *void) {
 #program_export
 game_update :: () -> bool {
 	Remap_Context();
+
 
 	if game.is_shutting_down then return false;
 

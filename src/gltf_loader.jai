@@ -60,13 +60,13 @@ parse_gltf_mesh_into_mesh :: (data: *GLTF_Data, mesh_idx: int) -> Mesh, bool {
 
 	if primitive.position_accessor == -1  then return .{}, false;
 	if primitive.indices_accessor == -1   then return .{}, false;
-	if primitive.tangent_accessor == -1   then return .{}, false;
+	// if primitive.tangent_accessor == -1   then return .{}, false;
 
 	{
 		indices_accessor := *data.accessors[primitive.indices_accessor];
 		mesh.indices  = NewArray(indices_accessor.count, u32);
 
-		position_accessor := *data.accessors[primitive.indices_accessor];
+		position_accessor := *data.accessors[primitive.position_accessor];
 		mesh.vertices = NewArray(position_accessor.count, GPUVertex);
 	}
 
@@ -78,8 +78,10 @@ parse_gltf_mesh_into_mesh :: (data: *GLTF_Data, mesh_idx: int) -> Mesh, bool {
 		mesh.vertices[it_index].position = it;
 	}
 
-	for iterate_accessor(data, primitive.tangent_accessor, Vec4) {
-		mesh.vertices[it_index].tangent = it;
+	if primitive.tangent_accessor != -1 {
+		for iterate_accessor(data, primitive.tangent_accessor, Vec4) {
+			mesh.vertices[it_index].tangent = it;
+		}
 	}
 
 	if primitive.normal_accessor != -1 {
@@ -228,6 +230,9 @@ parse_gltf_mesh_into_skel_mesh :: (
 	gltf_mesh := *data.meshes[mesh_idx];
 	primitive := *gltf_mesh.primitives[0];
 
+	if primitive.joints_accessor == -1  then return .{}, .{}, .{}, false;
+	if primitive.weights_accessor == -1   then return .{}, .{}, .{}, false;
+
 	assert(mesh_idx < data.skins.count);
 
 	skin := *data.skins[mesh_idx];
@@ -251,7 +256,7 @@ parse_gltf_mesh_into_skel_mesh :: (
 	{
 		array_reserve(*skeleton.inverse_bind_matrices, skin.joints.count);
 		array_reserve(*skeleton.bind_matrices_ls, skin.joints.count);
-		array_reserve(*skeleton.joint_tree, skin.joints.count);
+		array_resize(*skeleton.joint_tree, skin.joints.count);
 
 		skeleton.joint_count = skin.joints.count;
 
@@ -277,9 +282,11 @@ parse_gltf_mesh_into_skel_mesh :: (
 				array_add(*children, xx child_index);
 			}
 
-			array_add(*skeleton.joint_tree, children);
+			skeleton.joint_tree[gltf_node_index] = children;
 		}
 	}
+
+	log("JOINT TREE: %", skeleton.joint_tree);
 
 	skel_anim: SkeletalAnimation;
 	{
@@ -377,8 +384,8 @@ defer_destroy :: (gpu_mesh: SkelMeshBuffers) {
 
 // Creates the buffers, but doesn't fill them.
 create_skel_mesh_buffers :: (skel_mesh: SkeletalMesh, loc := #caller_location) -> SkelMeshBuffers {
-	assert(skel_mesh.attrs.count > 0);
-	assert(skel_mesh.vertices.count == skel_mesh.attrs.count);
+	assert(skel_mesh.attrs.count > 0, "Skeleton mesh doesn't have any attributes.");
+	assert(skel_mesh.vertices.count == skel_mesh.attrs.count, "Attribute count doesn't match number of verticies (% vs %).", skel_mesh.vertices.count, skel_mesh.attrs.count);
 
 	new_surface: SkelMeshBuffers;
 	new_surface.mesh_buffers = create_mesh_buffers(skel_mesh.mesh, loc = loc);

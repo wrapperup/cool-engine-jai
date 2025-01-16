@@ -102,9 +102,9 @@ sample_animation :: (animator: *SkeletonAnimator, time_s: f32) {
 }
 
 // Transforms a list of joints in local space to joint space. Usually for applying to vertices for skinning.
-calc_joint_matrices :: (skeleton: *Skeleton, in_joints_ls: []JointMatrix, out_joints_js: []JointMatrix) {
+calc_joint_matrices :: (skeleton: *Skeleton, in_joints_ls: [] JointMatrix, out_joints_js: [] JointMatrix) {
 	// Root joint is assumed to be at the origin in model space (since... it's the root)
-	calc_joint_matrix(skeleton, in_joints_ls, cast(JointId, 0), Matrix4_Identity, out_joints_js);
+	calc_joint_matrix(skeleton, in_joints_ls, 0, Matrix4_Identity, out_joints_js);
 }
 
 // TODO: Make this more efficient, it's recursive.
