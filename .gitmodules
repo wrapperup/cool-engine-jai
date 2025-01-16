@@ -22,3 +22,6 @@
 [submodule "modules/jai-libktx"]
 	path = modules/jai-libktx
 	url = https://github.com/wrapperup/jai-libktx/
+[submodule "modules/jai-mikktspace"]
+	path = modules/jai-mikktspace
+	url = https://github.com/wrapperup/jai-mikktspace
