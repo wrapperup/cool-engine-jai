@@ -110,6 +110,8 @@ game_init :: (del_queue_to_use: **Deletion_Queue) {
 	});
 	del_queue_to_use.* = context.deletion_queue;
 
+	log("context.deletion_queue: %", context.deletion_queue);
+
 	if game.renderer == null {
 		log_error("Graphics could not be initialized.");
 	}

@@ -162,11 +162,6 @@ build_hotreloadable_platform :: (release := false) {
 
     opts := Compiler.get_build_options(w);
 
-    import_path: [..] string;
-
-    array_add(*import_path, .. opts.import_path);
-    array_add(*import_path, "./my_modules");
-
     if release {
         opts.backend = .LLVM;
         opts.output_path = "build/release/";
@@ -182,7 +177,6 @@ build_hotreloadable_platform :: (release := false) {
     opts.output_executable_name = "main_hotreload";
 
     opts.use_custom_link_command = true;
-    opts.import_path = import_path;
 
     Compiler.set_build_options(opts, w);
 
@@ -215,7 +209,28 @@ build_hotreloadable_platform :: (release := false) {
 
     Compiler.add_build_file(tprint("%/entrypoints/debug.jai", #filepath), w);
 
-    message_loop();
+    while true {
+        message := Compiler.compiler_wait_for_message();
+        if message.kind == {
+            case .PHASE;
+                phase := cast(*Compiler.Message_Phase) message;
+                if phase.phase == .POST_WRITE_EXECUTABLE {
+                    print("\n");
+                    if phase.executable_write_failed {
+                        print("FAILED writing '%'! Linker exit code was %.\n", phase.executable_name, phase.linker_exit_code);
+                    } else {
+                        print("Success writing '%'! Linker exit code was %.\n", phase.executable_name, phase.linker_exit_code);
+                    }
+                }
+
+                if phase.phase == .READY_FOR_CUSTOM_LINK_COMMAND {
+                    run_custom_link_command(message.workspace, phase);
+                }
+
+            case .COMPLETE;
+                break;
+        }
+    }
 
     Compiler.compiler_end_intercept(w);
 }

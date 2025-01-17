@@ -17,7 +17,7 @@ Game_API :: struct {
 	modification_time: Apollo_Time;
 	api_version:       int;
 
-	init:           (**Deletion_Queue);
+	init:           (**void);
 	update:         () -> bool;
 	shutdown:       ();
 	memory:         () -> *void;
@@ -98,6 +98,8 @@ main :: () {
 
 	game_api_version += 1;
 	game_api.init(*context.deletion_queue);
+
+	log("context.deletion_queue: %", context.deletion_queue);
 
 	old_game_apis: [..] Game_API;
 
@@ -217,4 +219,4 @@ symbol_address :: (library: *void, symbol_name: string, verbose := false) -> *vo
 #import "Windows";
 #import "Print_Color";
 
-#load "../src/main.jai";
+#add_context deletion_queue: *void;
