@@ -58,9 +58,9 @@ parse_gltf_mesh_into_mesh :: (data: *GLTF_Data, mesh_idx: int) -> Mesh, bool {
 	gltf_mesh := *data.meshes[mesh_idx];
 	primitive := *gltf_mesh.primitives[0]; // TODO: Load all primitives.
 
-	if primitive.position_accessor == -1  then return .{}, false;
-	if primitive.indices_accessor == -1   then return .{}, false;
-	// if primitive.tangent_accessor == -1   then return .{}, false;
+	if primitive.position_accessor == -1     then return .{}, false;
+	if primitive.indices_accessor == -1      then return .{}, false;
+	if primitive.texcoord_0_accessor == -1   then return .{}, false;
 
 	{
 		indices_accessor := *data.accessors[primitive.indices_accessor];
@@ -78,10 +78,9 @@ parse_gltf_mesh_into_mesh :: (data: *GLTF_Data, mesh_idx: int) -> Mesh, bool {
 		mesh.vertices[it_index].position = it;
 	}
 
-	if primitive.tangent_accessor != -1 {
-		for iterate_accessor(data, primitive.tangent_accessor, Vec4) {
-			mesh.vertices[it_index].tangent = it;
-		}
+	for iterate_accessor(data, primitive.texcoord_0_accessor, Vec2) {
+		mesh.vertices[it_index].uv_x = it.x;
+		mesh.vertices[it_index].uv_y = it.y;
 	}
 
 	if primitive.normal_accessor != -1 {
@@ -102,74 +101,79 @@ parse_gltf_mesh_into_mesh :: (data: *GLTF_Data, mesh_idx: int) -> Mesh, bool {
 		}
 	}
 
-	if primitive.texcoord_0_accessor != -1 {
-		for iterate_accessor(data, primitive.texcoord_0_accessor, Vec2) {
-			mesh.vertices[it_index].uv_x = it.x;
-			mesh.vertices[it_index].uv_y = it.y;
+	tangent_ok := false;
+
+	if tangent_ok {
+		for iterate_accessor(data, primitive.tangent_accessor, Vec4) {
+			mesh.vertices[it_index].tangent = it;
 		}
+
+		tangent_ok = true;
+	} else {
+		get_num_vertices_of_face :: (pContext: *Mikk.MikkContext, iFace: int) -> int {
+			return 3;
+		}
+
+		// Generate tangents if we have normals + uv and no tangents are included.
+		get_vertex_index :: (pContext: *Mikk.MikkContext, iFace: int, iVert: int) -> int {
+			gltf_mesh := cast(*Mesh) pContext.user_data;
+
+			indices_index := iVert + (iFace * get_num_vertices_of_face(pContext, iFace));
+			index := gltf_mesh.indices[indices_index];
+
+			return cast(int) index;
+		}
+
+		get_num_faces :: (pContext: *Mikk.MikkContext) -> int {
+			gltf_mesh := cast(*Mesh) pContext.user_data;
+			return gltf_mesh.indices.count / 3;
+		}
+
+		get_position :: (pContext: *Mikk.MikkContext, iFace: int, iVert: int) -> Vec3 {
+			gltf_mesh := cast(*Mesh) pContext.user_data;
+			return gltf_mesh.vertices[get_vertex_index(pContext, iFace, iVert)].position;
+		}
+
+		get_normal :: (pContext: *Mikk.MikkContext, iFace: int, iVert: int) -> Vec3 {
+			gltf_mesh := cast(*Mesh) pContext.user_data;
+			return gltf_mesh.vertices[get_vertex_index(pContext, iFace, iVert)].normal;
+		}
+
+		get_tex_coord :: (pContext: *Mikk.MikkContext, iFace: int, iVert: int) -> Vec2 {
+			gltf_mesh := cast(*Mesh) pContext.user_data;
+			vertex := *gltf_mesh.vertices[get_vertex_index(pContext, iFace, iVert)];
+			return .{vertex.uv_x, vertex.uv_y};
+		}
+
+		set_t_space_basic :: (pContext: *Mikk.MikkContext, fvTangent: Vec3, fSign: f32, iFace: int, iVert: int) {
+			gltf_mesh := cast(*Mesh) pContext.user_data;
+			tangent := *gltf_mesh.vertices[get_vertex_index(pContext, iFace, iVert)].tangent;
+
+			// Not sure why I need to flip these? Seems to be fine though.
+			tangent.xyz = -fvTangent;
+			tangent.w = -fSign;
+		}
+
+		mikk_interface := Mikk.MikkInterface.{
+			get_num_faces            = get_num_faces,
+			get_num_vertices_of_face = get_num_vertices_of_face,
+			get_position             = get_position,
+			get_normal               = get_normal,
+			get_tex_coord            = get_tex_coord,
+			set_t_space_basic        = set_t_space_basic,
+		};
+
+		ctx := Mikk.MikkContext.{
+			mikk_interface = *mikk_interface,
+			user_data = *mesh,
+		};
+
+		tangent_ok = Mikk.generate_tangents(*ctx);
 	}
 
-	// Generate tangents if we have normals + uv and no tangents are included.
-	// get_vertex_index :: (pContext: *mikk.Context, iFace: int, iVert: int) -> int {
-	// 	gltf_mesh := cast(*Mesh)pContext.user_data
-	//
-	// 	indices_index := iVert + (iFace * get_num_vertices_of_face(pContext, iFace))
-	// 	index := gltf_mesh.indices[indices_index]
-	//
-	// 	return int(index)
-	// }
-	//
-	// get_num_faces :: (pContext: *mikk.Context) -> int {
-	// 	gltf_mesh := cast(*Mesh)pContext.user_data
-	// 	return len(gltf_mesh.indices) / 3
-	// }
-	//
-	// get_num_vertices_of_face :: (pContext: *mikk.Context, iFace: int) -> int {
-	// 	return 3
-	// }
-	//
-	// get_position :: (pContext: *mikk.Context, iFace: int, iVert: int) -> Vec3 {
-	// 	gltf_mesh := cast(*Mesh)pContext.user_data
-	// 	return gltf_mesh.vertices[get_vertex_index(pContext, iFace, iVert)].position
-	// }
-	//
-	// get_normal :: (pContext: *mikk.Context, iFace: int, iVert: int) -> Vec3 {
-	// 	gltf_mesh := cast(*Mesh)pContext.user_data
-	// 	return gltf_mesh.vertices[get_vertex_index(pContext, iFace, iVert)].normal
-	// }
-	//
-	// get_tex_coord :: (pContext: *mikk.Context, iFace: int, iVert: int) -> [2]f32 {
-	// 	gltf_mesh := cast(*Mesh)pContext.user_data
-	// 	vertex := &gltf_mesh.vertices[get_vertex_index(pContext, iFace, iVert)]
-	// 	return {vertex.uv_x, vertex.uv_y}
-	// }
-	//
-	// set_t_space_basic :: (pContext: *mikk.Context, fvTangent: Vec3, fSign: f32, iFace: int, iVert: int) {
-	// 	gltf_mesh := cast(*Mesh)pContext.user_data
-	// 	tangent := &gltf_mesh.vertices[get_vertex_index(pContext, iFace, iVert)].tangent
-	//
-	// 	// Not sure why I need to flip these? Seems to be fine though.
-	// 	tangent.xyz = -fvTangent
-	// 	tangent.w = -fSign
-	// }
-	//
-	// interface := mikk.Interface {
-	// 	get_num_faces            = get_num_faces,
-	// 	get_num_vertices_of_face = get_num_vertices_of_face,
-	// 	get_position             = get_position,
-	// 	get_normal               = get_normal,
-	// 	get_tex_coord            = get_tex_coord,
-	// 	set_t_space_basic        = set_t_space_basic,
-	// }
-	//
-	// ctx := mikk.Context {
-	// 	interface = &interface,
-	// 	user_data = &mesh,
-	// }
-	//
-	// tangent_ok = mikk.generate_tangents(&ctx)
+	assert(tangent_ok, "Tangents were not able to be generated.");
 
-	return mesh, true;
+	return mesh, tangent_ok;
 }
 
 Mesh :: struct {
@@ -255,34 +259,27 @@ parse_gltf_mesh_into_skel_mesh :: (
 	skeleton: Skeleton;
 	{
 		array_reserve(*skeleton.inverse_bind_matrices, skin.joints.count);
-		array_reserve(*skeleton.bind_matrices_ls, skin.joints.count);
-		array_resize(*skeleton.joint_tree, skin.joints.count);
+		array_reserve(*skeleton.joint_tree, skin.joints.count);
 
 		skeleton.joint_count = skin.joints.count;
 
 		for iterate_accessor(data, skin.inverse_bind_matrices, Mat4x4) {
-			array_add(*skeleton.inverse_bind_matrices, it);
-		}
-
-		for gltf_node_index: skin.joints {
-			gltf_joint := *data.nodes[gltf_node_index];
-			transform_matrix_ls := gltf_get_local_transform(gltf_joint);
-
-			array_add(*skeleton.bind_matrices_ls, transform_matrix_ls);
+			array_add(*skeleton.inverse_bind_matrices, transpose(it));
 		}
 
 		// Create hierarchical tree structure for joints (used later for calcing joint matrices)
-		for gltf_node_index: skin.joints {
-			gltf_joint := *data.nodes[gltf_node_index];
+		for joint_index: skin.joints {
+			log("joint_idx: %", joint_index);
+			joint := *data.nodes[joint_index];
 
 			children: [..] u32;
-			array_reserve(*children, gltf_joint.children.count);
+			array_reserve(*children, joint.children.count);
 
-			for child_index: gltf_joint.children {
-				array_add(*children, xx child_index);
+			for child_index: joint.children {
+				array_add(*children, xx ((skin.joints.count - child_index) - 1));
 			}
 
-			skeleton.joint_tree[gltf_node_index] = children;
+			array_add(*skeleton.joint_tree, children);
 		}
 	}
 
@@ -321,10 +318,10 @@ parse_gltf_mesh_into_skel_mesh :: (
 			}
 		}
 
-		array_reserve(*skel_anim.joint_animations, joint_anims.count);
+		array_resize(*skel_anim.joint_animations, joint_anims.count);
 
 		for joint_anims {
-			array_add(*skel_anim.joint_animations, it);
+			skel_anim.joint_animations[it_index] = it;
 		}
 
 		skel_anim.keyframe_count = xx skel_anim.joint_animations[0].keyframes_translation.count;

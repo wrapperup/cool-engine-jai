@@ -1,29 +1,4 @@
-#import "Basic";
-#import "String";
-#import "Math";
-#import "File";
-#import "Print_Color";
-
-#import "SDL"(VULKAN = true);
-#import "jai-vulkan";
-#import "jai-vma";
-#import "jai-libktx";
-ImGui :: #import "jai-imgui";
-for_expansion :: ImGui.for_expansion;
-
-#load "imgui_backends/imgui_impl_sdl2.jai";
-#load "imgui_backends/imgui_impl_vulkan.jai";
-
-#load "buffers.jai";
-#load "commands.jai";
-#load "config.jai";
-#load "debug.jai";
-#load "deletion_queue.jai";
-#load "descriptors.jai";
-#load "images.jai";
-#load "pipelines.jai";
-#load "textures.jai";
-#load "util.jai";
+#module_parameters (DEBUG := false);
 
 vk_check :: (result: VkResult, loc := #caller_location) {
 	if result != .SUCCESS {
@@ -1113,3 +1088,36 @@ DestroyDebugUtilsMessengerEXT :: (instance: VkInstance, debugMessenger: VkDebugU
 	func := cast(PFN_vkDestroyDebugUtilsMessengerEXT) vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT");
 	if func != null then func(instance, debugMessenger, pAllocator);
 }
+
+#scope_module
+
+f32 :: float32;
+f64 :: float64;
+
+#import "Basic";
+#import "String";
+#import "Math";
+#import "File";
+#import "Print_Color";
+
+#import "SDL"(VULKAN = true);
+#import "jai-libktx";
+#import "jai-vulkan";
+#import "jai-vma";
+#import "jai-libktx";
+ImGui :: #import "jai-imgui";
+for_expansion :: ImGui.for_expansion;
+
+#load "imgui_backends/imgui_impl_sdl2.jai";
+#load "imgui_backends/imgui_impl_vulkan.jai";
+
+#load "buffers.jai";
+#load "commands.jai";
+#load "config.jai";
+#load "debug.jai";
+#load "deletion_queue.jai";
+#load "descriptors.jai";
+#load "images.jai";
+#load "pipelines.jai";
+#load "textures.jai";
+#load "util.jai";

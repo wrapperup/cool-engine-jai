@@ -1,4 +1,5 @@
 #import "Basic";
+#import "Print_Color";
 #load "../src/main.jai";
 
 main_logger :: (message: string, data: *void, info: Log_Info)

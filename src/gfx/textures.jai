@@ -1,5 +1,3 @@
-#import "jai-libktx" ()(INCLUDE_KTX_VULKAN = true);
-
 load_image_from_file :: (
 	filename: string,
 	image_type: VkImageType = ._2D,

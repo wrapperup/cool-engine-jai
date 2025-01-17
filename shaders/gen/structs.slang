@@ -15,13 +15,6 @@ struct CascadeConfig {
     float slope_bias;
 }
 
-struct Point_Light {
-    Vec3 color;
-    float radius;
-    Vec3 world_pos;
-    float lumens;
-}
-
 struct Vertex {
     Vec3 position;
     float uv_x;
@@ -29,6 +22,13 @@ struct Vertex {
     float uv_y;
     Vec4 color;
     Vec4 tangent;
+}
+
+struct Point_Light {
+    Vec3 color;
+    float radius;
+    Vec3 world_pos;
+    float lumens;
 }
 
 struct Sh_Coefficients {

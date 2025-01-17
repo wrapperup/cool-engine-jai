@@ -1,5 +1,3 @@
-Slang :: #import "slang-jai";
-
 ShaderCreatePipelineCallback :: #type (VkShaderModule) -> VkPipeline;
 
 Shader :: struct {
@@ -53,19 +51,21 @@ bump_shader_file :: (file: *Shader_File) {
 }
 
 is_outdated :: (shader: Shader) -> bool {
-	modtime, size, ok := file_modtime_and_size(shader.file.path);
-	if !ok return false; // Can't really check if there's no file... play it safe.
+	#if DEBUG {
+		modtime, size, ok := file_modtime_and_size(shader.file.path);
+		if !ok return false; // Can't really check if there's no file... play it safe.
 
-	if shader.file.size != size || shader.file.modtime < modtime {
-		return true;
-	}
-
-	for shader.extra_files {
-		modtime, size, ok = file_modtime_and_size(it.path);
-		if !ok continue;
-
-		if it.size != size || it.modtime != modtime {
+		if shader.file.size != size || shader.file.modtime < modtime {
 			return true;
+		}
+
+		for shader.extra_files {
+			modtime, size, ok = file_modtime_and_size(it.path);
+			if !ok continue;
+
+			if it.size != size || it.modtime != modtime {
+				return true;
+			}
 		}
 	}
 
@@ -111,7 +111,7 @@ get_cached_shader_path :: (filepath: string) -> string {
 	return builder_to_string(*builder);
 }
 
-reload_shader_pipeline :: (shader: *Shader) -> bool {
+reload_shader_pipeline :: (shader: *Shader, force := false) -> bool {
 	cached_path := get_cached_shader_path(shader.file.path);
 
 	use_cached_spirv := false;
@@ -122,7 +122,7 @@ reload_shader_pipeline :: (shader: *Shader) -> bool {
 
 	code: [] u8;
 
-	if use_cached_spirv {
+	if use_cached_spirv && !force {
 		spirv_code_string, success := read_entire_file(cached_path);
 		if !success then return false;
 

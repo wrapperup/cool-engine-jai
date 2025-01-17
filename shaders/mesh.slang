@@ -106,6 +106,8 @@ FragmentOutput fragment_main(FragmentInput in) {
   Vec3 base_color =
       material.base_color.sample(DEFAULT_SAMPLER_ID, uv).xyz * in.color;
 
+  // base_color = saturate(in.pos_ws.xyz / 10);
+
   f32 reflectance = 0.5f;
 
   let ao_roughness_metallic =
@@ -185,9 +187,10 @@ FragmentOutput fragment_main(FragmentInput in) {
   // DEBUG
   // frag_color = base_color;
   // frag_color = 1;
+
   // let r = reflect(-v, n);
-  // frag_color = ENVIRONMENT_MAP_ID.sample_level(ENVIRONMENT_SAMPLER_ID, r,
-  // 0).rgb; frag_color =
+  // frag_color = ENVIRONMENT_MAP_ID.sample_level(ENVIRONMENT_SAMPLER_ID, r, 0).rgb;
+
   // ENVIRONMENT_MAP_ID.sample_level(ENVIRONMENT_SAMPLER_ID, n, 0).rgb;
   // frag_color = evaluate_specular_ibl(r, proughness);
   // frag_color = irradiance_sh(n,

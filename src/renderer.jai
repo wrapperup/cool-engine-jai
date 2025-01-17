@@ -570,7 +570,7 @@ hotreload_modified_shaders :: () -> bool {
 	// TODO: SPEED: Maybe iter this across frames?
 	for * shader: game.render_state.shaders {
 		if shader.needs_recompile {
-			ok := reload_shader_pipeline(shader);
+			ok := reload_shader_pipeline(shader, force = true);
 			defer_destroy(shader.pipeline); // Kinda leaky, but it's fine.
 			shader.needs_recompile = false;
 			bump_shader(shader);

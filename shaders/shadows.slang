@@ -46,7 +46,7 @@ float filter_pcf(float2 screen_pos, float4 shadow_coord, float cascade,
     return 1.f;
   }
 
-  float scale = (0.001f / ((1.5f * cascade) + 1.f));
+  float scale = (0.0008f / ((1.5f * cascade) + 1.f));
   float dx = scale * 1.0;
   float dy = scale * 1.0;
 

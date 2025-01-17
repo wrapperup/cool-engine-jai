@@ -215,5 +215,6 @@ symbol_address :: (library: *void, symbol_name: string, verbose := false) -> *vo
 #import "File";
 #import "File_Utilities";
 #import "Windows";
+#import "Print_Color";
 
 #load "../src/main.jai";

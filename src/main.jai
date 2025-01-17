@@ -1,7 +1,8 @@
 #import "Basic";
-#import "String";
+#import "File";
 #import "Math";
 #import "Remap_Context"(VERBOSE = false);
+#import "String";
 
 // External deps
 #import "JaiPhysX";
@@ -10,6 +11,9 @@
 #import "jai-libktx";
 #import "jai-vulkan";
 #import "slang-jai";
+Mikk :: #import "jai-mikktspace";
+ImGui :: #import "jai-imgui";
+Slang :: #import "slang-jai";
 
 #import,file "./gfx/module.jai";
 
