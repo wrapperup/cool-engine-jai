@@ -1,93 +1,3 @@
-// TODO: Un-hard code this stuff.
-SHADOW_ID: TextureId : 0;
-TONY_MC_MAPFACE_ID: TextureId : 1;
-DFG_ID: TextureId : 2;
-ENVIRONMENT_MAP_ID: TextureId : 3;
-TEST_SH_0_3_3D_ID: TextureId : 4;
-TEST_SH_4_7_3D_ID: TextureId : 5;
-TEST_SH_8_9_3D_ID: TextureId : 6;
-FONT_ATLAS_ID: TextureId : 7;
-
-DEFAULT_SAMPLER_ID: u32 : 0;
-SHADOW_SAMPLER_ID: u32 : 1;
-ENVIRONMENT_SAMPLER_ID: u32 : 2;
-FONT_SAMPLER_ID: u32 : 3;
-
-RESOLVED_IMAGE_ID: u32 : 0;
-
-MAX_BINDLESS_IMAGES :: 100;
-RESERVED_BINDLESS_IMAGES_COUNT :: 10;
-MAX_BINDLESS_SAMPLERS :: 32;
-
-NUM_CASCADES: u32 : 3;
-
-GPUDrawPushConstants :: struct @ShaderShared {
-	global_data:    GPU_Pointer(GPUGlobalData);
-	vertex_buffer:  GPU_Pointer(GPUVertex);
-	model_matrices: GPU_Pointer(Mat4x4);
-	materials:      GPU_Pointer(GPU_PBR_Material);
-	model_index:    u32;
-	material_index: MaterialId;
-	num_cascades:   u32;
-}
-
-GPUDrawShadowDepthPushConstants :: struct @ShaderShared {
-	vertex_buffer:  GPU_Pointer(GPUVertex);
-	model_matrices: GPU_Pointer(Mat4x4);
-	global_data:    GPU_Pointer(GPUGlobalData);
-	model_index:    u32;
-	cascade_index:  u32;
-}
-
-GPUSkinningPushConstants :: struct @ShaderShared {
-	input_vertex_buffer:  GPU_Pointer(GPUVertex);
-	output_vertex_buffer: GPU_Pointer(GPUVertex);
-	joint_matrices:       GPU_Pointer(Mat4x4); // TODO: Make these Mat4x3 since they're just affine transforms.
-	attrs:                GPU_Pointer(GPUSkeletonVertexAttribute);
-	vertex_count:         u32;
-}
-
-GPUSkyboxPushConstants :: struct @ShaderShared {
-	vertex_buffer: GPU_Pointer(GPUVertex);
-	global_data:   GPU_Pointer(GPUGlobalData);
-}
-
-// TODO: Make these typed so the generator can generate the correct bindless type.
-TextureId :: #type,isa u32;
-SamplerId :: #type,isa u32;
-MaterialId :: u32;
-ShaderId :: #type,isa u32;
-
-GPU_PBR_Material :: struct @ShaderShared {
-	base_color:            TextureId; @As(Tex2D)
-	normal_map:            TextureId; @As(Tex2D)
-	ao_roughness_metallic: TextureId; @As(Tex2D)
-}
-
-GPUEnvironment :: struct @ShaderShared {
-	sh_volume:        GPU_Pointer(Sh_Coefficients);
-	point_lights:     GPU_Pointer(GPU_Point_Light);
-	num_point_lights: u32;
-}
-
-GPUCascadeConfig :: struct @ShaderShared {
-	split_dist: f32;
-	bias:       f32;
-	slope_bias: f32;
-}
-
-GPUGlobalData :: struct @ShaderShared {
-	cascade_world_to_shadows: GPU_Pointer(Mat4x4);
-	cascade_configs:          GPU_Pointer(GPUCascadeConfig);
-	view_to_clip:             Mat4x4;
-	world_to_view:			  Mat4x4;
-	sun_color:                Vec3;
-	sky_color:                Vec3;
-	camera_pos:               Vec3;
-	sun_direction:            Vec3;
-	environment:              GPUEnvironment;
-}
-
 RenderState :: struct {
 	frame_data: [FRAME_OVERLAP]GameFrameData;
 
@@ -161,9 +71,51 @@ current_frame_game :: () -> *GameFrameData {
 	return *game.render_state.frame_data[current_frame_index()];
 }
 
-add_texture :: (image: GPUImage) -> TextureId {
+TextureId :: struct($T := Vec4) {
+	HandleType :: u32;
+	index: HandleType;
+};
+
+SamplerId :: struct {;
+	HandleType :: u32;
+	index: HandleType;
+};
+MaterialId :: u32;
+ShaderId :: #type,isa u32;
+
+get_identifier_name :: (name: Code) -> string {
+    #import "Compiler";
+
+    node := compiler_get_nodes(name);
+    if node.kind != .IDENT {
+        compiler_report("Not an identifier.", make_location(node));
+        return "";
+    }
+
+    ident := cast(*Code_Ident) node;
+    return ident.name;
+}
+
+// Aliases for picking the slang version of the type.
+Tex1D   :: TextureId;
+Tex2D   :: TextureId;
+Tex3D   :: TextureId;
+TexCube :: TextureId;
+
+Tex1DArray   :: TextureId;
+Tex2DArray   :: TextureId;
+Tex3DArray   :: TextureId;
+TexCubeArray :: TextureId;
+
+RWTex1D :: TextureId;
+RWTex2D :: TextureId;
+RWTex3D :: TextureId;
+
+add_texture :: (image: GPUImage, $ElementType := Vec4) -> TextureId(ElementType) {
 	scene_resources := *game.render_state.scene_resources;
-	texture_id := cast(TextureId, scene_resources.bindless_texture_start_index + cast(u32, scene_resources.bindless_textures.count));
+	texture_index := scene_resources.bindless_texture_start_index + cast(u32, scene_resources.bindless_textures.count);
+
+	texture_id := TextureId.{ texture_index };
 
 	array_add(*scene_resources.bindless_textures, image);
 
@@ -173,7 +125,7 @@ add_texture :: (image: GPUImage) -> TextureId {
 			type = .SAMPLED_IMAGE,
 			image_view = image.view,
 			image_layout = .READ_ONLY_OPTIMAL,
-			array_index = xx texture_id,
+			array_index = xx texture_index,
 		},
 	]);
 
@@ -187,12 +139,12 @@ set_texture :: (image: GPUImage, texture_id: TextureId) -> bool {
 	scene_resources := *game.render_state.scene_resources;
 
 	// Ensure our texture id can fit
-	if cast(TextureId, scene_resources.bindless_textures.count) <= texture_id {
-		array_resize(*scene_resources.bindless_textures, texture_id + 1);
+	if cast(TextureId.HandleType, scene_resources.bindless_textures.count) <= texture_id.index {
+		array_resize(*scene_resources.bindless_textures, texture_id.index + 1);
 		resized = true;
 	}
 
-	scene_resources.bindless_textures[texture_id] = image;
+	scene_resources.bindless_textures[texture_id.index] = image;
 
 	write_descriptor_set(game.render_state.bindless_descriptor_set, .[
 		.{
@@ -200,7 +152,7 @@ set_texture :: (image: GPUImage, texture_id: TextureId) -> bool {
 			type = .SAMPLED_IMAGE,
 			image_view = image.view,
 			image_layout = .READ_ONLY_OPTIMAL,
-			array_index = xx texture_id,
+			array_index = xx texture_id.index,
 		},
 	]);
 
@@ -348,16 +300,16 @@ write_builtin_bindless_descriptors :: () {
 	env_sampler := game.render_state.temp_resources.env_sampler;
 
 	write_descriptor_set(game.render_state.bindless_descriptor_set, .[
-		.{ binding = 0, type = .SAMPLED_IMAGE, image_view = game.render_state.shadow_depth_image.view, image_layout = .DEPTH_READ_ONLY_OPTIMAL, array_index = SHADOW_ID },
-		.{ binding = 0, type = .SAMPLED_IMAGE, image_view = tony_mc_mapface.view, image_layout = .READ_ONLY_OPTIMAL, array_index = TONY_MC_MAPFACE_ID },
-		.{ binding = 0, type = .SAMPLED_IMAGE, image_view = dfg.view, image_layout = .READ_ONLY_OPTIMAL, array_index = DFG_ID },
-		.{ binding = 0, type = .SAMPLED_IMAGE, image_view = env.view, image_layout = .READ_ONLY_OPTIMAL, array_index = ENVIRONMENT_MAP_ID },
+		.{ binding = 0, type = .SAMPLED_IMAGE, image_view = game.render_state.shadow_depth_image.view, image_layout = .DEPTH_READ_ONLY_OPTIMAL, array_index = SHADOW_ID.index },
+		.{ binding = 0, type = .SAMPLED_IMAGE, image_view = tony_mc_mapface.view, image_layout = .READ_ONLY_OPTIMAL, array_index = TONY_MC_MAPFACE_ID.index },
+		.{ binding = 0, type = .SAMPLED_IMAGE, image_view = dfg.view, image_layout = .READ_ONLY_OPTIMAL, array_index = DFG_ID.index },
+		.{ binding = 0, type = .SAMPLED_IMAGE, image_view = env.view, image_layout = .READ_ONLY_OPTIMAL, array_index = ENVIRONMENT_MAP_ID.index },
 
-		.{ binding = 1, type = .SAMPLER, sampler = mesh_image_sampler, image_layout = .READ_ONLY_OPTIMAL, array_index = DEFAULT_SAMPLER_ID },
-		.{ binding = 1, type = .SAMPLER, sampler = shadow_depth_sampler, image_layout = .DEPTH_READ_ONLY_OPTIMAL, array_index = SHADOW_SAMPLER_ID },
-		.{ binding = 1, type = .SAMPLER, sampler = env_sampler, image_layout = .READ_ONLY_OPTIMAL, array_index = ENVIRONMENT_SAMPLER_ID },
+		.{ binding = 1, type = .SAMPLER, sampler = mesh_image_sampler, image_layout = .READ_ONLY_OPTIMAL, array_index = DEFAULT_SAMPLER_ID.index },
+		.{ binding = 1, type = .SAMPLER, sampler = shadow_depth_sampler, image_layout = .DEPTH_READ_ONLY_OPTIMAL, array_index = SHADOW_SAMPLER_ID.index },
+		.{ binding = 1, type = .SAMPLER, sampler = env_sampler, image_layout = .READ_ONLY_OPTIMAL, array_index = ENVIRONMENT_SAMPLER_ID.index },
 
-		.{ binding = 2, type = .STORAGE_IMAGE, image_view = r_ctx.resolve_image.view, image_layout = .GENERAL },
+		.{ binding = 2, type = .STORAGE_IMAGE, image_view = r_ctx.resolve_image.view, image_layout = .GENERAL, array_index = RESOLVED_IMAGE_ID.index },
 	]);
 }
 
@@ -743,7 +695,7 @@ skinning_pass :: (cmd: VkCommandBuffer, instance: *SkeletalMeshInstance) {
 
 // TODO: Encode this as indirect draw args instead.
 MeshDraw :: struct {
-	vertex_buffer_address: GPU_Pointer(GPUVertex);
+	vertex_buffer_address: GPU_Ptr(GPUVertex);
 	index_buffer:          VkBuffer;
 	index_count:           u32;
 	model_index:           u32;

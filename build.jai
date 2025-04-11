@@ -4,7 +4,9 @@
 #import "String";
 #import "System";
 #import "Process";
+
 Compiler :: #import "Compiler";
+Hotreload_Platform :: #import,file "entrypoints/debug.jai";
 
 #if OS == .WINDOWS {
     Windows_Resources :: #import "Windows_Resources";
@@ -86,21 +88,15 @@ build_game :: (dynamic: bool, release := false) {
 
     opts := Compiler.get_build_options(w);
 
-    import_path: [..] string;
-
-    array_add(*import_path, .. opts.import_path);
-    array_add(*import_path, "./my_modules");
-
     if release {
         opts.backend = .LLVM;
-        opts.output_path = "build/release/";
+        opts.output_path = "build/release";
         opts.emit_debug_info = .NONE;
         opts.enable_bytecode_inliner = true;
         Compiler.set_optimization(*opts, .VERY_OPTIMIZED);   
     } else {
         opts.backend = .X64;
-        opts.output_path = "build/debug/";
-        Compiler.set_optimization(*opts, .DEBUG);   
+        opts.output_path = "build/debug";
     }
 
     if dynamic {
@@ -109,9 +105,6 @@ build_game :: (dynamic: bool, release := false) {
     } else {
         opts.output_executable_name = "main";
     }
-
-    opts.use_custom_link_command = true;
-    opts.import_path = import_path;
 
     Compiler.set_build_options(opts, w);
 
@@ -143,10 +136,12 @@ build_game :: (dynamic: bool, release := false) {
     }
 
     if dynamic {
-        Compiler.add_build_file(tprint("%/src/main.jai", #filepath), w);
+        Compiler.add_build_string("HOT_RELOAD :: true;", w);
     } else {
-        Compiler.add_build_file(tprint("%/entrypoints/release.jai", #filepath), w);
+        Compiler.add_build_string("HOT_RELOAD :: false;", w);
     }
+
+    Compiler.add_build_file(tprint("%src/main.jai", #filepath), w);
 
     message_loop(unique_pdb = dynamic);
 
@@ -164,19 +159,17 @@ build_hotreloadable_platform :: (release := false) {
 
     if release {
         opts.backend = .LLVM;
-        opts.output_path = "build/release/";
+        opts.output_path = "build/release";
         opts.emit_debug_info = .NONE;
         opts.enable_bytecode_inliner = true;
         Compiler.set_optimization(*opts, .VERY_OPTIMIZED);   
     } else {
         opts.backend = .X64;
-        opts.output_path = "build/debug/";
+        opts.output_path = "build/debug";
         Compiler.set_optimization(*opts, .DEBUG);   
     }
 
     opts.output_executable_name = "main_hotreload";
-
-    opts.use_custom_link_command = true;
 
     Compiler.set_build_options(opts, w);
 
@@ -207,7 +200,7 @@ build_hotreloadable_platform :: (release := false) {
         Compiler.add_build_string(build_string, w);
     }
 
-    Compiler.add_build_file(tprint("%/entrypoints/debug.jai", #filepath), w);
+    Compiler.add_build_file(tprint("%entrypoints/debug.jai", #filepath), w);
 
     while true {
         message := Compiler.compiler_wait_for_message();
@@ -221,10 +214,6 @@ build_hotreloadable_platform :: (release := false) {
                     } else {
                         print("Success writing '%'! Linker exit code was %.\n", phase.executable_name, phase.linker_exit_code);
                     }
-                }
-
-                if phase.phase == .READY_FOR_CUSTOM_LINK_COMMAND {
-                    run_custom_link_command(message.workspace, phase);
                 }
 
             case .COMPLETE;
@@ -262,10 +251,6 @@ message_loop :: (unique_pdb := true) {
                     }
                 }
 
-                if phase.phase == .READY_FOR_CUSTOM_LINK_COMMAND {
-                    run_custom_link_command(message.workspace, phase, unique_pdb = unique_pdb);
-                }
-
             case .COMPLETE;
                 // The compiler sends us this message when compilation is finished.
                 complete := cast(*Compiler.Message_Complete) message;
@@ -282,9 +267,6 @@ has_note :: (struct_t: *Compiler.Code_Struct, note: string) -> bool {
     for struct_t.notes  if it.text == note  return true;
     return false;
 }
-
-// is_shared_shader_type :: (info: *Type_Info) -> bool {
-// }
 
 Type_Mapping :: struct {
     from: string;
@@ -303,6 +285,7 @@ TYPE_MAPPING_TABLE :: Type_Mapping.[
     .{ "Vector3", "Vec3" },
     .{ "Vector4", "Vec4" },
     .{ "Matrix4", "Mat4x4" },
+    .{ "MaterialId", "u32" },
 ];
 
 map_type_to_slang_mappings :: (type: string) -> string {
@@ -318,10 +301,16 @@ map_type_to_slang_mappings :: (type: string) -> string {
 struct_to_slang_struct :: (builder: *String_Builder, struct_t: *Compiler.Code_Struct) -> bool {
     info := struct_t.defined_type;
 
-    print_to_builder(builder, "struct % {\n", strip_gpu_name(info.name));
-    for member: info.members {
-        slang_string := parse_into_slang_member(*member, 1);
+    assert(struct_t.modify_directives.count == 0, "No modifiers allowed on this struct.");
+    assert(struct_t.textual_flags == 0, "No struct modifier directives allowed.");
 
+    print_to_builder(builder, "struct % {\n", strip_gpu_name(info.(*Type_Info_Struct).name));
+    for node: struct_t.block.statements {
+        assert(node.kind == .DECLARATION, "Only constant declarations are allowed.");
+
+        decl := node.(*Compiler.Code_Declaration);
+
+        slang_string := parse_into_slang_member(decl, 1);
         print_to_builder(builder, slang_string);
     }
     print_to_builder(builder, "}\n\n");
@@ -347,98 +336,75 @@ strip_gpu_name :: (s: string) -> string {
     }
 }
 
-unwrap_gpu_pointer :: (struct_info: *Type_Info_Struct) -> *Type_Info, bool {
-    if struct_info.name != "GPU_Pointer"  return null, false; 
+unwrap_gpu_pointer :: (call: *Compiler.Code_Procedure_Call) -> *Compiler.Code_Ident {
+    using Compiler;
 
-    if !struct_info.polymorph_source_struct  return null, false;
-    if struct_info.specified_parameters.count != 1  return null, false;
+    if call.arguments_unsorted.count != 1 then        return null;
+    if call.procedure_expression.kind != .IDENT then  return null;
 
-    polymorph_member := struct_info.specified_parameters[0];
-    assert(polymorph_member.type.type == .TYPE, "GPU_Pointer polymorph member must be Type.");
+    ident := call.procedure_expression.(*Code_Ident);
+    if ident.name != "GPU_Ptr" then return null; 
 
-    offset := polymorph_member.offset_into_constant_storage;
-    polymorph_type_info := cast(**Type_Info, *struct_info.constant_storage[offset]).*;
+    arg := call.arguments_unsorted[0];
+    assert(arg.expression.kind == .IDENT, "GPU_Ptr polymorph member must be an ident. It was %", arg.expression.kind);
 
-    return polymorph_type_info, true; 
+    return arg.expression.(*Code_Ident); 
 }
 
-recurse_type_string :: (in_info: *Type_Info, num_ptrs: *s64, array_sizes: *[..] s64) -> string {
-    if in_info.type == {
-        case .INTEGER;
-            info := cast(*Type_Info_Integer, in_info);
+recurse_type_instantiation_to_string :: (
+    inst: *Compiler.Code_Type_Instantiation, 
+    num_ptrs: *s64,
+    array_sizes: *[..] s64,
+    template_args: *[..] string
+) -> string {
+    using Compiler;
 
-            if info.signed {
-                if info.runtime_size == {
-                    case 1; return "s8";
-                    case 2; return "s16";
-                    case 4; return "s32";
-                    case 8; return "s64";
+    // Handle array.
+    if inst.array_element_type {
+        assert(inst.array_dimension != null, "Fixed arrays only!!!");
 
-                    case; assert(false, "Unsupported integer %.", info.type);
-                }
-            } else {
-                if info.runtime_size == {
-                    case 1; return "u8";
-                    case 2; return "u16";
-                    case 4; return "u32";
-                    case 8; return "u64";
+        dimensions := inst.array_dimension.(*Code_Literal);
 
-                    case; assert(false, "Unsupported integer %.", info.type);
-                }
-            }
+        assert(dimensions.value_type == .NUMBER, "Array literal is not a number...?");
 
-        case .FLOAT;
-            info := cast(*Type_Info_Float, in_info);
+        assert(!(dimensions.value_flags & .FLOAT), "Array literal is a float...?");
+        assert(!(dimensions.value_flags & .MINUS_SIGN), "Array literal is a signed number...?");
 
-            if info.runtime_size == {
-                case 4; return "float32";
-                case 8; return "float64";
+        array_add(array_sizes, dimensions.values._u64.(s64));
 
-                case; assert(false, "Unsupported float %.", info.type);
-            }
+        return recurse_type_instantiation_to_string(inst.array_element_type, num_ptrs, array_sizes, template_args);
+    }
 
-        case .VARIANT;
-            info := cast(*Type_Info_Variant, in_info);
-            return info.name;
+    assert(inst.must_implement == null, "has must impl???");
+    assert(inst.pointer_to == null, "pointers disalloweed");
 
-        case .STRUCT;
-            info := cast(*Type_Info_Struct, in_info);
+    expr := inst.type_valued_expression;
 
-            inner_type, gpu_ok := unwrap_gpu_pointer(info);
-            if gpu_ok {
+    if expr.kind == {
+        case .IDENT;
+            ident := expr.(*Code_Ident);
+
+            return ident.name;
+
+        case .PROCEDURE_CALL; // Struct polymorph
+            proc_call := expr.(*Code_Procedure_Call);
+
+            inner_type := unwrap_gpu_pointer(proc_call);
+            if inner_type {
                 num_ptrs.* += 1;
-                return recurse_type_string(inner_type, num_ptrs, array_sizes);
+                return inner_type.name;
             }
 
-            return info.name;
+            assert(proc_call.procedure_expression.kind == .IDENT, "ermmm");
 
-        case .ARRAY;
-            info := cast(*Type_Info_Array, in_info);
-            assert(info.array_type == .FIXED, "Only fixed array types are allowed on shader structs %.", info.type);
-
-            array_add(array_sizes, info.array_count);
-
-            return recurse_type_string(info.element_type, num_ptrs, array_sizes);
+            ident := proc_call.procedure_expression.(*Code_Ident);
+            return ident.name;
 
         case;
-            assert(false, "Unsupported type on shader struct %.", in_info.type);
+            assert(false, "Unsupported type expression on shader struct %.", expr);
     } 
 
     return "";
-}
-
-member_has_slang_as_note :: (member_info: *Type_Info_Struct_Member) -> string, bool {
-    for member_info.notes {
-        if starts_with(it, "As(") {
-            stripped := it;
-            stripped.count -= 4; // Trim off `)` end and `As(`
-            stripped.data += 3;
-
-            return stripped, true;
-        }
-    }
-
-    return "", false;
 }
 
 is_banned_type :: (type_string: string) -> bool {
@@ -451,24 +417,21 @@ is_banned_type :: (type_string: string) -> bool {
     return false;
 }
 
-parse_into_slang_member :: (member_info: *Type_Info_Struct_Member, indent: s64) -> member_string: string {
+parse_into_slang_member :: (decl: *Compiler.Code_Declaration, indent: s64) -> member_string: string {
     builder: String_Builder;
 
     for 0..indent-1 {
         print_to_builder(*builder, "    ");
     }
 
-    type_note, has_type_note := member_has_slang_as_note(member_info);
-    if has_type_note {
-        print_to_builder(*builder, "% %;\n", type_note, member_info.name);
-        return builder_to_string(*builder);
-    }
-
     num_ptrs := 0;
     array_sizes: [..] s64;
+    template_args: [..] string;
     defer array_free(array_sizes);
 
-    type_string := recurse_type_string(member_info.type, *num_ptrs, *array_sizes);
+    assert(decl.type_inst != null, "No type instantiation...");
+
+    type_string := recurse_type_instantiation_to_string(decl.type_inst, *num_ptrs, *array_sizes, *template_args);
     type_string = map_type_to_slang_mappings(type_string);
 
     if is_banned_type(type_string) {
@@ -485,7 +448,7 @@ parse_into_slang_member :: (member_info: *Type_Info_Struct_Member, indent: s64) 
         print_to_builder(*builder, "*");
     }
 
-    print_to_builder(*builder, "%", member_info.name);
+    print_to_builder(*builder, "%", decl.name);
 
     if num_ptrs > 0 && array_sizes.count > 0 {
         print_to_builder(*builder, ")");
@@ -498,186 +461,4 @@ parse_into_slang_member :: (member_info: *Type_Info_Struct_Member, indent: s64) 
     print_to_builder(*builder, ";\n");
 
     return builder_to_string(*builder);
-}
-
-
-
-
-// @Cutnpaste from the sokoban implementation
-// but generalized to support cross-compilation/linking
-// when we support doing so!
-run_custom_link_command :: (w: Workspace, m: *Compiler.Message_Phase, use_system_linker_if_able := false, unique_pdb := false) {
-    options := Compiler.get_build_options(w);
-
-    // Use the workspace's Os_Target since we want to support
-    // cross-compilation at some point!
-    target := options.os_target;
-    target_windows := target == .WINDOWS;
-    target_linux   := target == .LINUX;
-    target_macosx  := target == .MACOS;
-
-    use_lld := !((target == OS) && use_system_linker_if_able);
-
-    #if OS == .WINDOWS {
-        system_linker_exe_name := "link.exe";
-    }
-
-    #if OS == .LINUX || OS == .MACOS {
-        system_linker_exe_name := "ld";
-    }
-
-    #if OS == .WINDOWS {
-        if !use_lld && target_windows {
-            // If we have opted to use the system linker and we're on Windows,
-            // then attempt to find link.exe, otherwise fallback to LLD (or maybe error?)
-            vc_path, linker_path := Windows_Resources.find_visual_studio_in_a_ridiculous_garbage_way();
-            if linker_path {
-                system_linker_exe_name = tprint("%\\%", linker_path, system_linker_exe_name);
-            } else {
-                Compiler.compiler_report("Could not find link.exe path, falling back to using LLD", mode=.WARNING);
-                use_lld = true;
-            }
-        }
-    }
-
-    suffix := "";
-    #if OS == .WINDOWS {
-        if options.output_type == .EXECUTABLE {
-            suffix = ".exe";
-        } else if options.output_type == .DYNAMIC_LIBRARY {
-            suffix = ".dll";
-        } else {
-            assert(false, "Unsupported output type.");
-        }
-    }
-
-    target_filename := tprint("%1%2%3", options.output_path, options.output_executable_name, suffix);
-
-    lld_exe_name: string;
-    if use_lld {
-        compiler_base_path := Compiler.compiler_get_base_path();
-
-        #if OS == .WINDOWS  lld := "lld.exe";
-        #if OS == .MACOS    lld := "lld-macosx";
-        #if OS == .LINUX    lld := "lld-linux";
-
-        lld_exe_name = tprint("%/bin/%", compiler_base_path, lld);
-    }
-
-
-    // Unfortunately, right now we are using CreateProcessW because that allows
-    // one to be specific about security, etc (or if it isn't specific enough we can
-    // change to CreateProcessExW). HOWEVER, it doesn't inherit the path so we need
-    // to provide the path explicitly. That sucks. Maybe we have to change to system.
-    // Or duplicate system's ability to use the path.
-
-    arguments: [..] string;
-
-    if use_lld {
-        array_add(*arguments, lld_exe_name);
-        array_add(*arguments, "-flavor");
-
-        // choose the flavor based on the target OS.
-        if      target_windows array_add(*arguments, "link");
-        else if target_linux   array_add(*arguments, "Gnu");
-        else if target_macosx  array_add(*arguments, "Darwin");
-    } else {
-        array_add(*arguments, system_linker_exe_name);
-    }
-
-    if target_windows array_add(*arguments, "/nologo");
-
-    // Object files.
-    for m.compiler_generated_object_files array_add(*arguments, it);
-    for m.support_object_files array_add(*arguments, it);
-
-    if target_windows {
-        // Target filename.
-        array_add(*arguments, tprint("/OUT:%", target_filename));
-
-        array_add(*arguments, "/MACHINE:AMD64");
-        array_add(*arguments, "/INCREMENTAL:NO");
-        array_add(*arguments, "/DEBUG");
-//        array_add(*arguments, "/OPT:REF");
-
-        // If generating an executable, then create lib and exp file inside intermediate directory.
-        if options.output_type == .EXECUTABLE {
-            array_add(*arguments, tprint("/IMPLIB:%1%2.lib", options.intermediate_path, path_strip_extension(options.output_executable_name)));
-        }
-    } else if target_linux {
-        array_add(*arguments, "--eh-frame-hdr");
-        array_add(*arguments, "-export-dynamic");
-        array_add(*arguments, tprint("-o%", target_filename));
-        array_add(*arguments, "--dynamic-linker");
-        array_add(*arguments, "/lib64/ld-linux-x86-64.so.2");
-        array_add(*arguments, "-rpath=$ORIGIN");
-    } else { // target_macosx
-        array_add(*arguments, "-export_dynamic");
-        array_add(*arguments, "-dynamic");
-        array_add(*arguments, "-o");
-        array_add(*arguments, target_filename);
-
-        array_add(*arguments, "-macosx_version_min");
-        array_add(*arguments, "10.13");
-
-        array_add(*arguments, "-rpath");
-        array_add(*arguments, "@loader_path"); // NOTE: on the command-line we have to single-quote this, here it must be unquoted!
-    }
-
-    // @TODO we probably need to do something similar using LLD on non-Windows hosts
-    #if OS == .WINDOWS {
-        if target_windows {
-            vc_path := Windows_Resources.find_visual_studio_in_a_ridiculous_garbage_way();
-            if vc_path {
-                array_add(*arguments, tprint("/libpath:\"%\"", vc_path));
-            } else {
-                Compiler.compiler_report(#file, #line, 0, "Unable to find Visual Studio runtime library folder; can't compile.\n");
-            }
-
-            kit_root, windows_version := Windows_Resources.find_windows_kit_root();
-            if kit_root {
-                // I guess both Windows 8 and 10 use the same um / ucrt format.
-                // kit_root does not have a slash at the end!! Sigh.
-                array_add(*arguments, tprint("/libpath:\"%/um/x64\"", kit_root));
-                array_add(*arguments, tprint("/libpath:\"%/ucrt/x64\"", kit_root));
-            } else {
-                // Report error.
-                Compiler.compiler_report(#file, #line, 0, "Unable to find Windows Kit root; can't compile.\n");
-            }
-
-
-            if (options.output_type == .DYNAMIC_LIBRARY) {
-                array_add(*arguments, "/DLL");
-            }
-
-            array_add(*arguments, "-nodefaultlib");
-        }
-    }
-
-    // Write to a non-clashing PDB.
-    if unique_pdb {
-        target_pdb := tprint("%1%2", options.output_path, options.output_executable_name);
-
-        version := 0;
-
-        while file_exists(tprint("%1_%2.pdb", target_pdb, version)) {
-            version += 1;
-        }
-
-        array_add(*arguments, tprint("/PDB:%_%.pdb", target_pdb, version));
-    }
-
-    for m.system_libraries    array_add(*arguments, it);
-    for m.user_libraries      array_add(*arguments, it);
-
-
-    print("Link line: %\n", get_quoted_command_string(arguments));
-    process_result := run_command(..arguments);
-
-    if process_result.exit_code != 0 {
-        print("Error: Link step failed! (Exit code %).\n", process_result.exit_code);
-    }
-
-    // Report to the compiler that we have finished linking
-    Compiler.compiler_custom_link_command_is_complete(w);
 }

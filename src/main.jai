@@ -1,78 +1,5 @@
-#import "Basic";
-#import "File";
-#import "Math";
-#import "Remap_Context"(VERBOSE = false);
-#import "String";
-
-// External deps
-#import "JaiPhysX";
-#import "SDL"(VULKAN = true);
-#import "gltf_parser";
-#import "jai-libktx";
-#import "jai-vulkan";
-#import "slang-jai";
-Mikk :: #import "jai-mikktspace";
-ImGui :: #import "jai-imgui";
-Slang :: #import "slang-jai";
-
-#import,file "./gfx/module.jai";
-
-#load "config.jai";
-#load "dfg.jai";
-#load "editor.jai";
-#load "entity.jai";
-#load "entity_ball.jai";
-#load "entity_player.jai";
-#load "entity_point_light.jai";
-#load "entity_sound_source.jai";
-#load "entity_static_mesh.jai";
-#load "env_prefilter.jai";
-#load "game_state.jai";
-#load "gltf_loader.jai";
-#load "gpu_types.jai";
-#load "imgui.jai";
-#load "math.jai";
-#load "physics.jai";
-#load "renderer.jai";
-#load "shaders.jai";
-#load "skeleton.jai";
-#load "spherical_harmonics.jai";
-#load "sys_asset.jai";
-#load "sys_input.jai";
-#load "sys_sound.jai";
-#load "util.jai";
-
 f32 :: float32;
 f64 :: float64;
-
-REQUIRED_FEATURES :: RequiredFeatures.{
-	vk_10 = .{
-		samplerAnisotropy             = VK_TRUE,
-		shaderStorageImageMultisample = VK_TRUE,
-		shaderImageGatherExtended     = VK_TRUE,
-		multiDrawIndirect             = VK_TRUE,
-		geometryShader                = VK_TRUE,
-		shaderInt64                   = VK_TRUE,
-		shaderInt16                   = VK_TRUE,
-		shaderFloat64                 = VK_TRUE,
-	},
-	vk_11 = .{
-		variablePointers              = VK_TRUE,
-		variablePointersStorageBuffer = VK_TRUE,
-	},
-	vk_12 = .{
-		bufferDeviceAddress    = VK_TRUE,
-		descriptorIndexing     = VK_TRUE,
-		storagePushConstant8   = VK_TRUE,
-		shaderInt8             = VK_TRUE,
-		runtimeDescriptorArray = VK_TRUE,
-		scalarBlockLayout      = VK_TRUE,
-	},
-	vk_13 = .{
-		dynamicRendering = VK_TRUE,
-		synchronization2 = VK_TRUE,
-	},
-};
 
 game: *Game;
 
@@ -101,6 +28,35 @@ game_init :: (del_queue_to_use: **Deletion_Queue) {
 
 	game.config = default_game_config();
 	game.window = window;
+
+    REQUIRED_FEATURES :: RequiredFeatures.{
+        vk_10 = .{
+            samplerAnisotropy             = VK_TRUE,
+            shaderStorageImageMultisample = VK_TRUE,
+            shaderImageGatherExtended     = VK_TRUE,
+            multiDrawIndirect             = VK_TRUE,
+            geometryShader                = VK_TRUE,
+            shaderInt64                   = VK_TRUE,
+            shaderInt16                   = VK_TRUE,
+            shaderFloat64                 = VK_TRUE,
+        },
+        vk_11 = .{
+            variablePointers              = VK_TRUE,
+            variablePointersStorageBuffer = VK_TRUE,
+        },
+        vk_12 = .{
+            bufferDeviceAddress    = VK_TRUE,
+            descriptorIndexing     = VK_TRUE,
+            storagePushConstant8   = VK_TRUE,
+            shaderInt8             = VK_TRUE,
+            runtimeDescriptorArray = VK_TRUE,
+            scalarBlockLayout      = VK_TRUE,
+        },
+        vk_13 = .{
+            dynamicRendering = VK_TRUE,
+            synchronization2 = VK_TRUE,
+        },
+    };
 
     game.renderer = gfx_init(.{
 		window = window,
@@ -380,3 +336,86 @@ game_memory :: () -> *void {
 
 	return game;
 }
+
+#if !HOT_RELOAD {
+    main_logger :: (message: string, data: *void, info: Log_Info)
+    {
+        #if RELEASE then return;
+        if info.common_flags == .VERBOSE_ONLY && context.log_level != .VERBOSE then return;
+        if info.common_flags == .VERY_VERBOSE_ONLY && context.log_level != .VERY_VERBOSE then return;
+
+        color := Console_Color.WHITE;
+        if info.common_flags == .ERROR then color = .RED;
+        if info.common_flags == .WARNING then color = .YELLOW;
+
+        to_standard_error := (info.common_flags & .ERROR) != 0;
+        
+        if message[message.count-1] != #char "\n" {
+            with_console_color(color, write_strings(message, "\n", to_standard_error = to_standard_error));
+        } else {
+            with_console_color(color, write_string(message, to_standard_error = to_standard_error));
+        }
+    }
+
+    main :: () {
+        context.logger = main_logger;
+
+        game_init(*context.deletion_queue);
+
+        window_open := true;
+        while window_open {
+            window_open = game_update();
+            reset_temporary_storage();
+        }
+
+        reset_temporary_storage();
+        game_shutdown();
+    }
+
+    #import "Print_Color";
+}
+
+#import "Basic";
+#import "File";
+#import "Math";
+#import "Remap_Context"(VERBOSE = false);
+#import "String";
+
+// External deps
+#import "JaiPhysX";
+#import "SDL"(VULKAN = true);
+#import "gltf_parser";
+#import "jai-libktx";
+#import "jai-vulkan";
+#import "slang-jai";
+Mikk :: #import "jai-mikktspace";
+ImGui :: #import "jai-imgui";
+Slang :: #import "slang-jai";
+
+#import,file "./gfx/module.jai";
+
+#load "config.jai";
+#load "dfg.jai";
+#load "editor.jai";
+#load "entity.jai";
+#load "entity_ball.jai";
+#load "entity_player.jai";
+#load "entity_point_light.jai";
+#load "entity_sound_source.jai";
+#load "entity_static_mesh.jai";
+#load "env_prefilter.jai";
+#load "game_state.jai";
+#load "gltf_loader.jai";
+#load "gpu_types.jai";
+#load "imgui.jai";
+#load "math.jai";
+#load "physics.jai";
+#load "renderer.jai";
+#load "shaders.jai";
+#load "shader_globals.jai";
+#load "skeleton.jai";
+#load "spherical_harmonics.jai";
+#load "sys_asset.jai";
+#load "sys_input.jai";
+#load "sys_sound.jai";
+#load "util.jai";

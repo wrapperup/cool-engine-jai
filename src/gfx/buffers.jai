@@ -4,16 +4,16 @@ GPU_Buffer :: struct($T: Type) #modify {
 	buffer:     VkBuffer;
 	allocation: VmaAllocation;
 	info:       VmaAllocationInfo;
-	ptr:        GPU_Pointer(T);
+	ptr:        GPU_Ptr(T);
 }
 
-GPU_Pointer :: struct($T: Type) {
+GPU_Ptr :: struct($T: Type) {
 	address: VkDeviceAddress;
 }
 
 // This is hopefully very common kinds of buffers
 // you may typically want to create. Uniform and Storage
-// buffers will always create a valid GPU_Pointer(T).
+// buffers will always create a valid GPU_Ptr(T).
 Buffer_Kind :: enum {
 	Storage;        // Includes ptr
 	Uniform;        // Includes ptr
@@ -78,7 +78,7 @@ destroy_buffer :: (allocated_buffer: GPU_Buffer) {
 	vmaDestroyBuffer(r_ctx.allocator, allocated_buffer.buffer, allocated_buffer.allocation);
 }
 
-get_gpu_pointer :: (buffer: GPU_Buffer($T)) -> GPU_Pointer(T) {
+get_gpu_pointer :: (buffer: GPU_Buffer($T)) -> GPU_Ptr(T) {
 	device_address_info := VkBufferDeviceAddressInfo.{
 		sType  = .BUFFER_DEVICE_ADDRESS_INFO,
 		buffer = buffer.buffer,
@@ -183,7 +183,7 @@ transition_buffer :: (
 
 // TODO: Do we need this? It would be useful I think at some point.
 // It's specific push/pop functions will update a buffer automatically,
-// and maps to an Odin dynamic array.
+// and maps to a dynamic array.
 // GPUDynamicArray :: struct {
-// 	using _: GPU_Buffer,
+//     using _: GPU_Buffer;
 // }

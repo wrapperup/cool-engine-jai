@@ -66,7 +66,6 @@ unload_game_api :: (api: *Game_API) {
 
 main_logger :: (message: string, data: *void, info: Log_Info)
 {
-	#if RELEASE then return;
 	if info.common_flags == .VERBOSE_ONLY && context.log_level != .VERBOSE then return;
 	if info.common_flags == .VERY_VERBOSE_ONLY && context.log_level != .VERY_VERBOSE then return;
 
@@ -83,7 +82,6 @@ main_logger :: (message: string, data: *void, info: Log_Info)
     }
 
 }
-
 
 main :: () {
 	context.logger = main_logger;
@@ -214,6 +212,7 @@ symbol_address :: (library: *void, symbol_name: string, verbose := false) -> *vo
     }
 }
 
+#import "Basic";
 #import "File";
 #import "File_Utilities";
 #import "Windows";

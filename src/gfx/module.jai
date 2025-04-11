@@ -1007,13 +1007,13 @@ debug_callback :: (
 		message := to_string(callback_data.pMessage);
 		log("%\n", message);
 
-		for i: 0 .. callback_data.objectCount - 1 {
-			name := to_string(callback_data.pObjects[i].pObjectName);
-
-			if name.count > 0 {
-				log(" - %\n", name);
-			}
-		}
+		// for i: 0 .. callback_data.objectCount - 1 {
+		// 	name := to_string(callback_data.pObjects[i].pObjectName);
+		//
+		// 	if name.count > 0 {
+		// 		log(" - %\n", name);
+		// 	}
+		// }
 
 		log("\n");
 	}

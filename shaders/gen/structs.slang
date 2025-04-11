@@ -1,38 +1,38 @@
 struct SkeletonVertexAttribute {
     u8 joints[4];
-    float weights[4];
+    f32 weights[4];
+}
+
+struct CascadeConfig {
+    f32 split_dist;
+    f32 bias;
+    f32 slope_bias;
+}
+
+struct Vertex {
+    Vec3 position;
+    f32 uv_x;
+    Vec3 normal;
+    f32 uv_y;
+    Vec4 color;
+    Vec4 tangent;
+}
+
+struct Point_Light {
+    Vec3 color;
+    f32 radius;
+    Vec3 world_pos;
+    f32 lumens;
+}
+
+struct Sh_Coefficients {
+    Vec4 coef[9];
 }
 
 struct PBR_Material {
     Tex2D base_color;
     Tex2D normal_map;
     Tex2D ao_roughness_metallic;
-}
-
-struct CascadeConfig {
-    float split_dist;
-    float bias;
-    float slope_bias;
-}
-
-struct Point_Light {
-    Vec3 color;
-    float radius;
-    Vec3 world_pos;
-    float lumens;
-}
-
-struct Vertex {
-    Vec3 position;
-    float uv_x;
-    Vec3 normal;
-    float uv_y;
-    Vec4 color;
-    Vec4 tangent;
-}
-
-struct Sh_Coefficients {
-    Vec4 coef[9];
 }
 
 struct DrawPushConstants {
