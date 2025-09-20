@@ -13,9 +13,9 @@ PrefilteredCubeMapPass :: struct {
 	pipeline_layout:               VkPipelineLayout;
 
 	// Resources
-	cube_image:                    GPUImage;
+	cube_image:                    GPU_Image;
 	cube_sampler:                  VkSampler;
-	prefilter_image:               GPUImage;
+	prefilter_image:               GPU_Image;
 	prefilter_image_views:         [MAX_ROUGHNESS_LEVELS]VkImageView;
 	prefilter_image_mapped_buffer: GPU_Buffer(u8);
 	width:                         u32;
@@ -92,7 +92,7 @@ create_prefiltered_cubemap_pipeline :: (filename: string, out_width: u32, out_he
 	prefilter_shader, f_ok := load_shader_module("shaders/out/prefilter_env.spv");
 	assert(f_ok, "Failed to load shaders.");
 
-	pass.pipeline_layout = create_pipeline_layout_pc("Environment Prefilter", *pass.descriptor_set_layout, PrefilteredCubeMapPushConstants, .COMPUTE_BIT);
+	pass.pipeline_layout = create_pipeline_layout("Environment Prefilter", *pass.descriptor_set_layout, PrefilteredCubeMapPushConstants, .COMPUTE_BIT);
 	pass.pipeline, _ = create_compute_pipelines("Environment Prefiler", pass.pipeline_layout, prefilter_shader);
 
 	destroy_shader_module(prefilter_shader);

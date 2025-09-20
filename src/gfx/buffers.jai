@@ -15,12 +15,12 @@ GPU_Ptr :: struct($T: Type) {
 // you may typically want to create. Uniform and Storage
 // buffers will always create a valid GPU_Ptr(T).
 Buffer_Kind :: enum {
-	Storage;        // Includes ptr
-	Uniform;        // Includes ptr
+	Storage;    // Includes ptr
+	Uniform;    // Includes ptr. However, prefer uniform access for speed.
 	DynUniform; // Mapped uniform buffer // TODO: HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT
 	Index;
-	Staging;        // For CPU -> GPU writes onto device-local buffers.
-	Readback;       // For GPU -> CPU reads from device-local buffers.
+	Staging;    // For CPU -> GPU writes onto device-local buffers.
+	Readback;   // For GPU -> CPU reads from device-local buffers.
 }
 
 vk_buffer_flags :: (kind: Buffer_Kind) -> VkBufferUsageFlags, VmaAllocationCreateFlags  {

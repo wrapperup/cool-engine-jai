@@ -62,6 +62,8 @@ parse_gltf_mesh_into_mesh :: (data: *GLTF_Data, mesh_idx: int) -> Mesh, bool {
 	if primitive.indices_accessor == -1      then return .{}, false;
 	if primitive.texcoord_0_accessor == -1   then return .{}, false;
 
+    tangent_ok := primitive.tangent_accessor != -1;
+
 	{
 		indices_accessor := *data.accessors[primitive.indices_accessor];
 		mesh.indices  = NewArray(indices_accessor.count, u32);
@@ -101,14 +103,10 @@ parse_gltf_mesh_into_mesh :: (data: *GLTF_Data, mesh_idx: int) -> Mesh, bool {
 		}
 	}
 
-	tangent_ok := false;
-
 	if tangent_ok {
 		for iterate_accessor(data, primitive.tangent_accessor, Vec4) {
 			mesh.vertices[it_index].tangent = it;
 		}
-
-		tangent_ok = true;
 	} else {
 		get_num_vertices_of_face :: (pContext: *Mikk.MikkContext, iFace: int) -> int {
 			return 3;
@@ -269,7 +267,6 @@ parse_gltf_mesh_into_skel_mesh :: (
 
 		// Create hierarchical tree structure for joints (used later for calcing joint matrices)
 		for joint_index: skin.joints {
-			log("joint_idx: %", joint_index);
 			joint := *data.nodes[joint_index];
 
 			children: [..] u32;
@@ -282,8 +279,6 @@ parse_gltf_mesh_into_skel_mesh :: (
 			array_add(*skeleton.joint_tree, children);
 		}
 	}
-
-	log("JOINT TREE: %", skeleton.joint_tree);
 
 	skel_anim: SkeletalAnimation;
 	{

@@ -1,4 +1,3 @@
-#import "Basic";
 #import "Hash_Table";
 #import "File_Utilities";
 
@@ -140,7 +139,7 @@ get_entity_subtype_system ::  ($T: Type) -> *Sparse_Set(T) {
 
     name := info.name;
 
-    storage, found := table_find(*game.entity_system.subtype_storage, name);
+    found, storage := table_find_new(*game.entity_system.subtype_storage, name);
 
     if !found then return null;
 

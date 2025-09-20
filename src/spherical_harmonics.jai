@@ -201,27 +201,28 @@ process_sh_from_equirectangular :: (equirectangular: []Vec4, width: int) -> Sh_C
 	return sh;
 }
 
-// Explanation: https://www.rorydriscoll.com/2012/01/15/cubemap-texel-solid-angle/
-solid_angle_cubemap :: (au: f32, av: f32, size: f32) -> f32 {
-	u := (2.0 * (au + 0.5) / size) - 1.0;
-	v := (2.0 * (av + 0.5) / size) - 1.0;
 
-	inv_size := 1.0 / size;
-
-	// U and V are the -1..1 texture coordinate on the current face.
-	// get projected area for this texel
-	x0 := u - inv_size;
-	y0 := v - inv_size;
-	x1 := u + inv_size;
-	y1 := v + inv_size;
-	angle := area_element(x0, y0) - area_element(x0, y1) - area_element(x1, y0) + area_element(x1, y1);
-
-	return angle;
-}
-
-area_element :: (x: f32, y: f32) -> f32 {
-	return atan2(x * y, sqrt(x * x + y * y + 1.0));
-}
+// // Explanation: https://www.rorydriscoll.com/2012/01/15/cubemap-texel-solid-angle/
+// solid_angle_cubemap :: inline (au: f32, av: f32, size: f32) -> f32 {
+// 	u := (2.0 * (au + 0.5) / size) - 1.0;
+// 	v := (2.0 * (av + 0.5) / size) - 1.0;
+//
+// 	inv_size := 1.0 / size;
+//
+// 	// U and V are the -1..1 texture coordinate on the current face.
+// 	// get projected area for this texel
+// 	x0 := u - inv_size;
+// 	y0 := v - inv_size;
+// 	x1 := u + inv_size;
+// 	y1 := v + inv_size;
+// 	angle := area_element(x0, y0) - area_element(x0, y1) - area_element(x1, y0) + area_element(x1, y1);
+//
+// 	return angle;
+// }
+//
+// area_element :: inline (x: f32, y: f32) -> f32 {
+// 	return atan2(x * y, sqrt(x * x + y * y + 1.0));
+// }
 
 load_image_into_bytes :: (filename: string, loc := #caller_location) -> []Vec4, int, int {
 	ktx_texture: *ktxTexture2;
@@ -244,4 +245,47 @@ load_image_into_bytes :: (filename: string, loc := #caller_location) -> []Vec4, 
 	memcpy(arr.data, data, xx size);
 
 	return arr, ktx_texture.baseWidth, ktx_texture.baseHeight;
+}
+
+// Exact, but fewer ops.
+area_element :: inline (x: f32, y: f32) -> f32 {
+    // atan2(x*y, sqrt(x*x + y*y + 1)) == atan( (x*y) / sqrt(x*x + y*y + 1) )
+    // Use rsqrt for speed if your platform has it.
+    r2 := x*x + y*y + 1.0;
+    inv_len := 1.0 / sqrt(r2); // if unavailable, use 1.0 / sqrt(r2)
+    return atan(x * y * inv_len);
+}
+
+solid_angle_cubemap :: inline (au: f32, av: f32, size: f32) -> f32 {
+    // Precompute invariants
+    inv_size := 1.0 / size;
+    two_inv_size := 2.0 * inv_size;
+
+    // Texel center in [-1, 1]
+    u := two_inv_size * (au + 0.5) - 1.0;
+    v := two_inv_size * (av + 0.5) - 1.0;
+
+    // Half-texel offsets in face coords
+    du := inv_size;
+    dv := inv_size;
+
+    x0 := u - du;
+    x1 := u + du;
+    y0 := v - dv;
+    y1 := v + dv;
+
+    // Reuse squares across the 4 corners (separable!)
+    x0_2 := x0*x0;
+    x1_2 := x1*x1;
+    y0_2 := y0*y0;
+    y1_2 := y1*y1;
+
+    // Corner area elements using shared terms + rsqrt
+    // a(x,y) = atan( x*y * rsqrt(x^2 + y^2 + 1) )
+    a00 := atan(x0 * y0 * (1.0/sqrt(x0_2 + y0_2 + 1.0)));
+    a01 := atan(x0 * y1 * (1.0/sqrt(x0_2 + y1_2 + 1.0)));
+    a10 := atan(x1 * y0 * (1.0/sqrt(x1_2 + y0_2 + 1.0)));
+    a11 := atan(x1 * y1 * (1.0/sqrt(x1_2 + y1_2 + 1.0)));
+
+    return a00 - a01 - a10 + a11;
 }

@@ -1,6 +1,5 @@
 import bindless;
 import common;
-import consts;
 import ibl;
 import standard_brdf;
 import types;
@@ -45,7 +44,7 @@ struct FragmentOutput {
 
 [shader("fragment")]
 FragmentOutput fragment_main(FragmentInput i) {
-  let color = pc.global_data.sky_color * ENVIRONMENT_MAP_ID.sample_level(ENVIRONMENT_SAMPLER_ID, i.frag_pos, 0).xyz;
+  let color = pc.global_data.sky_color * pc.global_data.environment.env_map.sample_level(pc.global_data.environment.env_sampler, i.frag_pos, 0).xyz;
 
   FragmentOutput output;
   output.frag_color = float4(color, 1.0);

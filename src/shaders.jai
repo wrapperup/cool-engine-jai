@@ -1,5 +1,8 @@
 ShaderCreatePipelineCallback :: #type (VkShaderModule) -> VkPipeline;
 
+// TODO: Factor out the shader from the renderer.
+ShaderId :: #type,isa u32;
+
 Shader :: struct {
 	pipeline:                 VkPipeline;
 	file:                     Shader_File;
@@ -119,6 +122,8 @@ reload_shader_pipeline :: (shader: *Shader, force := false) -> bool {
 	if file_exists(cached_path) && is_outdated(shader) {
 		use_cached_spirv = true;
 	}
+
+    use_cached_spirv = false;
 
 	code: [] u8;
 

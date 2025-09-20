@@ -10,7 +10,7 @@ DfgGeneratePass :: struct {
 	pipeline_layout:       VkPipelineLayout;
 
 	// Resources
-	dfg_image:               GPUImage;
+	dfg_image:               GPU_Image;
 	dfg_image_mapped_buffer: GPU_Buffer(u8);
 	width, height:           u32;
 }
@@ -50,10 +50,10 @@ create_dfg_generate_pipeline :: (width: u32, height: u32) -> DfgGeneratePass {
 		],
 	);
 
-	dfg_shader, f_ok := load_shader_module("shaders/out/dfg.spv");
-	assert(f_ok, "Failed to load shaders.");
+	dfg_shader, ok := load_shader_module("shaders/out/dfg.spv");
+	assert(ok, "Failed to load shaders.");
 
-	pass.pipeline_layout = create_pipeline_layout_pc("DFG", *pass.descriptor_set_layout, DfgGeneratePassPC, .COMPUTE_BIT);
+	pass.pipeline_layout = create_pipeline_layout("DFG", *pass.descriptor_set_layout, DfgGeneratePassPC);
 	pass.pipeline, _ = create_compute_pipelines("DFG", pass.pipeline_layout, dfg_shader);
 
 	destroy_shader_module(dfg_shader);

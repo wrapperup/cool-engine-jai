@@ -34,9 +34,9 @@ Renderer :: struct {
 	allocator:             VmaAllocator;
 
 	// Draw resources
-	draw_image:    GPUImage;
-	resolve_image: GPUImage;
-	depth_image:   GPUImage;
+	draw_image:    GPU_Image;
+	resolve_image: GPU_Image;
+	depth_image:   GPU_Image;
 	draw_extent:   VkExtent2D;
 	msaa_samples:  VkSampleCountFlags;
 
@@ -52,6 +52,9 @@ Renderer :: struct {
 	imgui_ctx:  *ImGui.ImGuiContext;
 	imgui_init: bool;
 	imgui_pool: VkDescriptorPool;
+
+    // Bindless
+    bindless_system: Bindless_System;
 
 	limits: VkPhysicalDeviceLimits; // TODO: Too big?
 }
@@ -80,9 +83,13 @@ InitConfig :: struct {
 }
 
 gfx_init :: (config := InitConfig.{}) -> *Renderer {
-	r_ctx = New(Renderer);
+    renderer := New(Renderer);
+
+    set_renderer(renderer);
 
 	assert(init_vulkan(config), "Failed to initialize Vulkan.");
+
+    init_bindless_system();
 
 	return r_ctx;
 }
@@ -213,7 +220,6 @@ create_swapchain :: () {
 
 	if (SDL_GetWindowFlags(r_ctx.window) & SDL_WINDOW_FULLSCREEN) == 0 {
 		SDL_GetWindowSize(r_ctx.window, *x, *y);
-		log("Windowed size: %, %", x, y);
 	} else {
 		display_index := SDL_GetWindowDisplayIndex(r_ctx.window);
 
@@ -222,8 +228,6 @@ create_swapchain :: () {
 
 		x = display_mode.w;
 		y = display_mode.h;
-
-		log("Fullscreen size: %, %", x, y);
 	}
 
 	draw_image_format: VkFormat = .R32G32B32A32_SFLOAT;
@@ -1111,6 +1115,7 @@ for_expansion :: ImGui.for_expansion;
 #load "imgui_backends/imgui_impl_sdl2.jai";
 #load "imgui_backends/imgui_impl_vulkan.jai";
 
+#load "bindless.jai";
 #load "buffers.jai";
 #load "commands.jai";
 #load "config.jai";

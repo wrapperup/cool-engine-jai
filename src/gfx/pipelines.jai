@@ -205,10 +205,22 @@ pb_free :: (builder: PipelineBuilder) {
 
 create_pipeline_layout :: (
 	debug_name: string,
-	descriptor_set_layout: *VkDescriptorSetLayout = null,
+	descriptor_set_layout: *VkDescriptorSetLayout,
+	$T: Type,
+	stage_flags: VkShaderStageFlags = .VERTEX_BIT | .FRAGMENT_BIT,
 	loc := #caller_location
 ) -> VkPipelineLayout {
+	buffer_range := VkPushConstantRange.{
+		offset     = 0,
+		size       = size_of(T),
+		stageFlags = stage_flags,
+	};
+
 	pipeline_layout_info := init_pipeline_layout_create_info();
+    // #if T != void {
+        pipeline_layout_info.pPushConstantRanges = *buffer_range;
+        pipeline_layout_info.pushConstantRangeCount = 1;
+    // }
 	pipeline_layout_info.pSetLayouts = descriptor_set_layout;
 	pipeline_layout_info.setLayoutCount = xx ifx descriptor_set_layout != null then 1 else 0;
 
@@ -222,33 +234,13 @@ create_pipeline_layout :: (
 	return pipeline_layout;
 }
 
-create_pipeline_layout_pc :: (
-	debug_name: string,
-	descriptor_set_layout: *VkDescriptorSetLayout,
-	$T: Type,
-	stage_flags: VkShaderStageFlags = .VERTEX_BIT | .FRAGMENT_BIT,
-	loc := #caller_location
-) -> VkPipelineLayout {
-	buffer_range := VkPushConstantRange.{
-		offset     = 0,
-		size       = size_of(T),
-		stageFlags = stage_flags,
-	};
+Pipeline :: struct {
+    pipeline: VkPipeline;
+    layout: VkPipelineLayout;
+}
 
-	pipeline_layout_info := init_pipeline_layout_create_info();
-	pipeline_layout_info.pPushConstantRanges = *buffer_range;
-	pipeline_layout_info.pushConstantRangeCount = 1;
-	pipeline_layout_info.pSetLayouts = descriptor_set_layout;
-	pipeline_layout_info.setLayoutCount = xx ifx descriptor_set_layout != null then 1 else 0;
-
-	pipeline_layout: VkPipelineLayout;
-	vk_check(vkCreatePipelineLayout(r_ctx.device, *pipeline_layout_info, null, *pipeline_layout));
-
-	#if DEBUG {
-		debug_set_object_name(pipeline_layout, debug_name);
-	}
-
-	return pipeline_layout;
+Graphics_Pipeline :: struct {
+    using common: Pipeline;
 }
 
 create_graphics_pipeline :: (
@@ -295,6 +287,10 @@ create_graphics_pipeline :: (
 	debug_set_object_name(pipeline, name);
 
 	return pipeline, true;
+}
+
+Compute_Pipeline :: struct {
+    using common: Pipeline;
 }
 
 create_compute_pipelines :: (

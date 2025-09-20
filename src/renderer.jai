@@ -1,15 +1,9 @@
 RenderState :: struct {
 	frame_data: [FRAME_OVERLAP]GameFrameData;
 
-	// Bindless textures, etc
-	bindless_descriptor_layout: VkDescriptorSetLayout;
-	bindless_descriptor_set:    VkDescriptorSet;
-	global_uniform_data:        GPUGlobalData;
+	global_uniform_data: GPUGlobalData;
 
 	scene_resources: struct {
-		bindless_textures:            [..] GPUImage;
-		bindless_texture_start_index: u32; // 0-10 is for reserved internal textures
-
 		materials:                    [..] GPU_PBR_Material;
 		materials_buffer:             GPU_Buffer(GPU_PBR_Material);
 
@@ -18,12 +12,13 @@ RenderState :: struct {
 	};
 
 	temp_resources: struct {
-		tony_mc_mapface:      GPUImage;
-		dfg:                  GPUImage;
-		env:                  GPUImage;
-		mesh_image_sampler:   VkSampler;
-		shadow_depth_sampler: VkSampler;
-		env_sampler:          VkSampler;
+		tony_mc_mapface:      ImageId;
+		dfg:                  ImageId;
+		env:                  ImageId;
+		resolved_image:       ImageId;
+        default_sampler:      SamplerId;
+        shadow_depth_sampler: SamplerId;
+		env_sampler:          SamplerId;
 	};
 	
 	shaders:        [..] Shader;
@@ -41,7 +36,8 @@ RenderState :: struct {
 	// Shadow pipelines
 	shadow_pipeline_layout:          VkPipelineLayout;
 	mesh_shadow_shader:              ShaderId;
-	shadow_depth_image:              GPUImage;
+	shadow_depth_image:              GPU_Image;
+	shadow_depth_image_id:           ImageId;
 	shadow_depth_attach_image_views: [NUM_CASCADES]VkImageView;
 	cascade_world_to_shadows:        [NUM_CASCADES]Mat4x4;
 	cascade_configs:                 [NUM_CASCADES]GPUCascadeConfig;
@@ -71,93 +67,8 @@ current_frame_game :: () -> *GameFrameData {
 	return *game.render_state.frame_data[current_frame_index()];
 }
 
-TextureId :: struct($T := Vec4) {
-	HandleType :: u32;
-	index: HandleType;
-};
 
-SamplerId :: struct {;
-	HandleType :: u32;
-	index: HandleType;
-};
 MaterialId :: u32;
-ShaderId :: #type,isa u32;
-
-get_identifier_name :: (name: Code) -> string {
-    #import "Compiler";
-
-    node := compiler_get_nodes(name);
-    if node.kind != .IDENT {
-        compiler_report("Not an identifier.", make_location(node));
-        return "";
-    }
-
-    ident := cast(*Code_Ident) node;
-    return ident.name;
-}
-
-// Aliases for picking the slang version of the type.
-Tex1D   :: TextureId;
-Tex2D   :: TextureId;
-Tex3D   :: TextureId;
-TexCube :: TextureId;
-
-Tex1DArray   :: TextureId;
-Tex2DArray   :: TextureId;
-Tex3DArray   :: TextureId;
-TexCubeArray :: TextureId;
-
-RWTex1D :: TextureId;
-RWTex2D :: TextureId;
-RWTex3D :: TextureId;
-
-add_texture :: (image: GPUImage, $ElementType := Vec4) -> TextureId(ElementType) {
-	scene_resources := *game.render_state.scene_resources;
-	texture_index := scene_resources.bindless_texture_start_index + cast(u32, scene_resources.bindless_textures.count);
-
-	texture_id := TextureId.{ texture_index };
-
-	array_add(*scene_resources.bindless_textures, image);
-
-	write_descriptor_set(game.render_state.bindless_descriptor_set, .[
-		.{
-			binding = 0,
-			type = .SAMPLED_IMAGE,
-			image_view = image.view,
-			image_layout = .READ_ONLY_OPTIMAL,
-			array_index = xx texture_index,
-		},
-	]);
-
-	return texture_id;
-}
-
-// Writes a texture to the bindless ID and updates the descriptor.
-set_texture :: (image: GPUImage, texture_id: TextureId) -> bool {
-	resized := false;
-
-	scene_resources := *game.render_state.scene_resources;
-
-	// Ensure our texture id can fit
-	if cast(TextureId.HandleType, scene_resources.bindless_textures.count) <= texture_id.index {
-		array_resize(*scene_resources.bindless_textures, texture_id.index + 1);
-		resized = true;
-	}
-
-	scene_resources.bindless_textures[texture_id.index] = image;
-
-	write_descriptor_set(game.render_state.bindless_descriptor_set, .[
-		.{
-			binding = 0,
-			type = .SAMPLED_IMAGE,
-			image_view = image.view,
-			image_layout = .READ_ONLY_OPTIMAL,
-			array_index = xx texture_id.index,
-		},
-	]);
-
-	return resized;
-}
 
 add_material :: (material: GPU_PBR_Material) -> MaterialId {
 	scene_resources := *game.render_state.scene_resources;
@@ -170,18 +81,18 @@ add_material :: (material: GPU_PBR_Material) -> MaterialId {
 	return material_id;
 }
 
+
 //// INITIALIZATION
 init_game_renderer :: () {
 	init_shadow_maps();
-	init_bindless_descriptors();
+    init_bindless_system();
+	init_bindless_images();
 	init_pipelines();
 	init_buffers();
 	init_test_materials();
 }
 
 init_test_materials :: () {
-	game.render_state.scene_resources.bindless_texture_start_index = RESERVED_BINDLESS_IMAGES_COUNT;
-
 	game.render_state.scene_resources.materials_buffer = 
 		create_buffer(GPU_PBR_Material, 20, .Storage);
 	defer_destroy(game.render_state.scene_resources.materials_buffer);
@@ -196,9 +107,9 @@ init_test_materials :: () {
 		rma_tex := load_image_from_file("assets/textures/test_rma.ktx2");
 		defer_destroy(rma_tex);
 
-		color_id := add_texture(color_tex);
-		normal_id := add_texture(normal_tex);
-		rma_id := add_texture(rma_tex);
+		color_id := add_image(color_tex);
+		normal_id := add_image(normal_tex);
+		rma_id := add_image(rma_tex);
 
 		add_material(.{color_id, normal_id, rma_id});
 		add_material(.{color_id, normal_id, rma_id});
@@ -214,9 +125,9 @@ init_test_materials :: () {
 		rma_tex := load_image_from_file("assets/textures/materialball2/rma.ktx2");
 		defer_destroy(rma_tex);
 
-		color_id := add_texture(color_tex);
-		normal_id := add_texture(normal_tex);
-		rma_id := add_texture(rma_tex);
+		color_id := add_image(color_tex);
+		normal_id := add_image(normal_tex);
+		rma_id := add_image(rma_tex);
 
 		add_material(.{color_id, normal_id, rma_id});
 	}
@@ -238,79 +149,67 @@ init_shadow_maps :: () {
 	}
 }
 
-init_bindless_descriptors :: () {
-	game.render_state.bindless_descriptor_layout = create_descriptor_set_layout(
-		.[
-			.{binding = 0, type = .SAMPLED_IMAGE, count = MAX_BINDLESS_IMAGES},
-			.{binding = 1, type = .SAMPLER, count = MAX_BINDLESS_SAMPLERS},
-			.{binding = 2, type = .STORAGE_IMAGE},
-		],
-		.UPDATE_AFTER_BIND_POOL_BIT,
-		.VERTEX_BIT | .FRAGMENT_BIT | .COMPUTE_BIT,
-	);
-	defer_destroy(game.render_state.bindless_descriptor_layout);
+init_bindless_images :: () {
+    rs := *game.render_state;
+    tr := *rs.temp_resources;
 
-	game.render_state.bindless_descriptor_set = allocate_descriptor_set(
-		*r_ctx.global_descriptor_allocator,
-		game.render_state.bindless_descriptor_layout,
-	);
+    {
+        tony_mc_mapface := load_image_from_file("assets/textures/tonemapping/tony-mc-mapface.ktx2", ._3D, ._3D);
+        defer_destroy(tony_mc_mapface);
 
-	tony_mc_mapface := load_image_from_file("assets/textures/tonemapping/tony-mc-mapface.ktx2", ._3D, ._3D);
-	defer_destroy(tony_mc_mapface);
+        tr.tony_mc_mapface = add_image(tony_mc_mapface);
+    }
 
-	dfg := load_image_from_file("assets/gen/dfg.ktx2");
-	defer_destroy(dfg);
 
-	env := load_image_from_file("assets/gen/test_cubemap_ld.ktx2", ._2D, .CUBE);
-	defer_destroy(env);
+    {
+        dfg := load_image_from_file("assets/gen/dfg.ktx2");
+        defer_destroy(dfg);
 
-	// Default Texture Sampler
-	TEMP_mesh_image_sampler := create_sampler(
-		.LINEAR,
-		.REPEAT,
-		max_lod = 10.0,
-		max_anisotropy = r_ctx.limits.maxSamplerAnisotropy,
-	);
-	defer_destroy(TEMP_mesh_image_sampler);
+        tr.dfg = add_image(dfg);
+    }
 
-	// Shadow Depth Texture Sampler
-	shadow_depth_sampler := create_sampler(.LINEAR, .CLAMP_TO_EDGE, .LESS_OR_EQUAL);
-	defer_destroy(shadow_depth_sampler);
+    {
+        env := load_image_from_file("assets/gen/test_cubemap_ld.ktx2", ._2D, .CUBE);
+        defer_destroy(env);
 
-	env_sampler := create_sampler(.LINEAR, .CLAMP_TO_EDGE, max_lod = 8.0);
-	defer_destroy(env_sampler);
+        tr.env = add_image(env);
+    }
 
-	game.render_state.temp_resources.tony_mc_mapface = tony_mc_mapface;
-	game.render_state.temp_resources.dfg = dfg;
-	game.render_state.temp_resources.env = env;
-	game.render_state.temp_resources.mesh_image_sampler = TEMP_mesh_image_sampler;
-	game.render_state.temp_resources.shadow_depth_sampler = shadow_depth_sampler;
-	game.render_state.temp_resources.env_sampler = env_sampler;
+    {
+        default_sampler := create_sampler(.LINEAR, .REPEAT, max_lod = 10.0, max_anisotropy = r_ctx.limits.maxSamplerAnisotropy);
+        defer_destroy(default_sampler);
 
-	write_builtin_bindless_descriptors();
-}
+        tr.default_sampler = add_sampler(default_sampler);
+    }
 
-// TODO: Automate this shit, there's no need to have any of this hard-coded.
-write_builtin_bindless_descriptors :: () {
-	tony_mc_mapface := game.render_state.temp_resources.tony_mc_mapface;
-	dfg := game.render_state.temp_resources.dfg;
-	env := game.render_state.temp_resources.env;
-	mesh_image_sampler := game.render_state.temp_resources.mesh_image_sampler;
-	shadow_depth_sampler := game.render_state.temp_resources.shadow_depth_sampler;
-	env_sampler := game.render_state.temp_resources.env_sampler;
+    {
+        rs.shadow_depth_image_id = add_image(rs.shadow_depth_image);
+    }
 
-	write_descriptor_set(game.render_state.bindless_descriptor_set, .[
-		.{ binding = 0, type = .SAMPLED_IMAGE, image_view = game.render_state.shadow_depth_image.view, image_layout = .DEPTH_READ_ONLY_OPTIMAL, array_index = SHADOW_ID.index },
-		.{ binding = 0, type = .SAMPLED_IMAGE, image_view = tony_mc_mapface.view, image_layout = .READ_ONLY_OPTIMAL, array_index = TONY_MC_MAPFACE_ID.index },
-		.{ binding = 0, type = .SAMPLED_IMAGE, image_view = dfg.view, image_layout = .READ_ONLY_OPTIMAL, array_index = DFG_ID.index },
-		.{ binding = 0, type = .SAMPLED_IMAGE, image_view = env.view, image_layout = .READ_ONLY_OPTIMAL, array_index = ENVIRONMENT_MAP_ID.index },
+    {
+        shadow_depth_sampler := create_sampler(.LINEAR, .CLAMP_TO_EDGE, .LESS_OR_EQUAL);
+        defer_destroy(shadow_depth_sampler);
 
-		.{ binding = 1, type = .SAMPLER, sampler = mesh_image_sampler, image_layout = .READ_ONLY_OPTIMAL, array_index = DEFAULT_SAMPLER_ID.index },
-		.{ binding = 1, type = .SAMPLER, sampler = shadow_depth_sampler, image_layout = .DEPTH_READ_ONLY_OPTIMAL, array_index = SHADOW_SAMPLER_ID.index },
-		.{ binding = 1, type = .SAMPLER, sampler = env_sampler, image_layout = .READ_ONLY_OPTIMAL, array_index = ENVIRONMENT_SAMPLER_ID.index },
+        tr.shadow_depth_sampler = add_sampler(shadow_depth_sampler);
+    }
 
-		.{ binding = 2, type = .STORAGE_IMAGE, image_view = r_ctx.resolve_image.view, image_layout = .GENERAL, array_index = RESOLVED_IMAGE_ID.index },
-	]);
+    {
+        shadow_depth_sampler := create_sampler(.LINEAR, .CLAMP_TO_EDGE, .LESS_OR_EQUAL);
+        defer_destroy(shadow_depth_sampler);
+
+        tr.shadow_depth_sampler = add_sampler(shadow_depth_sampler);
+    }
+
+    {
+        env_sampler := create_sampler(.LINEAR, .CLAMP_TO_EDGE, max_lod = 8.0);
+        defer_destroy(env_sampler);
+
+        tr.env_sampler = add_sampler(env_sampler);
+    }
+
+    {
+        tr.resolved_image = add_image(r_ctx.resolve_image);
+    }
 }
 
 init_pipelines :: () {
@@ -323,9 +222,9 @@ init_pipelines :: () {
 }
 
 init_mesh_pipelines :: () {
-	game.render_state.mesh_pipeline_layout = create_pipeline_layout_pc(
+	game.render_state.mesh_pipeline_layout = create_pipeline_layout(
 		"Basic_Mesh_Pipeline_Layout",
-		*game.render_state.bindless_descriptor_layout,
+		*r_ctx.bindless_system.descriptor_layout,
 		GPUDrawPushConstants,
 	);
 	defer_destroy(game.render_state.mesh_pipeline_layout);
@@ -351,9 +250,9 @@ init_mesh_pipelines :: () {
 	);
 	defer_destroy(game.render_state.mesh_shader);
 
-	game.render_state.shadow_pipeline_layout = create_pipeline_layout_pc(
+	game.render_state.shadow_pipeline_layout = create_pipeline_layout(
 		"Shadow_Depth_Pipeline_Layout",
-		*game.render_state.bindless_descriptor_layout,
+		*r_ctx.bindless_system.descriptor_layout,
 		GPUDrawShadowDepthPushConstants,
 	);
 	defer_destroy(game.render_state.shadow_pipeline_layout);
@@ -381,7 +280,7 @@ init_mesh_pipelines :: () {
 }
 
 init_skinning_pipelines :: () {
-	game.render_state.skinning_pipeline_layout = create_pipeline_layout_pc("Skinning", null, GPUSkinningPushConstants, .COMPUTE_BIT);
+	game.render_state.skinning_pipeline_layout = create_pipeline_layout("Skinning", null, GPUSkinningPushConstants, .COMPUTE_BIT);
 	defer_destroy(game.render_state.skinning_pipeline_layout);
 
 	game.render_state.skinning_shader = add_shader(
@@ -392,9 +291,9 @@ init_skinning_pipelines :: () {
 }
 
 init_skybox_pipelines :: () {
-	game.render_state.skybox_pipeline_layout = create_pipeline_layout_pc(
+	game.render_state.skybox_pipeline_layout = create_pipeline_layout(
 		"Skybox_Pipeline_Layout",
-		*game.render_state.bindless_descriptor_layout,
+		*r_ctx.bindless_system.descriptor_layout,
 		GPUSkyboxPushConstants,
 	);
 	defer_destroy(game.render_state.skybox_pipeline_layout);
@@ -424,7 +323,9 @@ init_skybox_pipelines :: () {
 init_tonemapper_pipelines :: () {
 	game.render_state.tonemapper_pipeline_layout = create_pipeline_layout(
 		"Tonemapper_Pipeline_Layout",
-		*game.render_state.bindless_descriptor_layout,
+		*r_ctx.bindless_system.descriptor_layout,
+        GPUPostProcessingPushConstants,
+        .COMPUTE_BIT,
 	);
 	defer_destroy(game.render_state.tonemapper_pipeline_layout);
 
@@ -483,6 +384,10 @@ init_buffers :: () {
 		sh_volume        = sh_volume_buf.ptr,
 		point_lights     = game.render_state.scene_resources.point_light_buffer.ptr,
 		num_point_lights = xx game.render_state.scene_resources.point_lights.count,
+
+        env_map = game.render_state.temp_resources.env,
+        dfg = game.render_state.temp_resources.dfg,
+        env_sampler = game.render_state.temp_resources.env_sampler,
 	};
 
 	array_reserve(*game.render_state.model_matrices, 16_000);
@@ -536,7 +441,7 @@ hotreload_modified_shaders :: () -> bool {
 draw :: () {
 	scope_stat_time(.Render);
 
-	#if DEBUG {
+	#if false {
 		if check_shader_hotreload() {
 			vk_check(vkDeviceWaitIdle(r_ctx.device));
 			hotreload_start := current_time_monotonic();
@@ -561,9 +466,6 @@ draw :: () {
 	cmd := begin_command_buffer();
 
 	update_buffers();
-
-	// TODO: This updates every frame... probably bad?
-	write_builtin_bindless_descriptors();
 
 	// Begin Skinning pass
 	for instance: current_frame_game().skel_instances {
@@ -771,7 +673,7 @@ shadow_map_pass :: (cmd: VkCommandBuffer, cascade: u32) {
 		game.render_state.mesh_pipeline_layout,
 		0,
 		1,
-		*game.render_state.bindless_descriptor_set,
+		*r_ctx.bindless_system.descriptor_set,
 		0,
 		null,
 	);
@@ -830,7 +732,7 @@ geometry_pass :: (cmd: VkCommandBuffer) {
 		game.render_state.mesh_pipeline_layout,
 		0,
 		1,
-		*game.render_state.bindless_descriptor_set,
+		*r_ctx.bindless_system.descriptor_set,
 		0,
 		null,
 	);
@@ -847,9 +749,13 @@ geometry_pass :: (cmd: VkCommandBuffer) {
 				model_matrices = current_frame_game().model_matrices_buffer.ptr,
 				materials = game.render_state.scene_resources.materials_buffer.ptr,
 				model_index = mesh_draw.model_index,
-				material_index = mesh_draw.material_index,
 				num_cascades = NUM_CASCADES,
-}
+
+                material_index = mesh_draw.material_index,
+
+                shadow_depth = game.render_state.shadow_depth_image_id,
+                shadow_sampler = game.render_state.temp_resources.shadow_depth_sampler,
+            }
 		);
 
 		vkCmdDrawIndexed(cmd, mesh_draw.index_count, 1, 0, 0, 0);
@@ -881,7 +787,7 @@ skybox_pass :: (cmd: VkCommandBuffer) {
 		game.render_state.skybox_pipeline_layout,
 		0,
 		1,
-		*game.render_state.bindless_descriptor_set,
+		*r_ctx.bindless_system.descriptor_set,
 		0,
 		null,
 	);
@@ -908,9 +814,20 @@ post_processing_pass :: (cmd: VkCommandBuffer) {
 		game.render_state.tonemapper_pipeline_layout,
 		0,
 		1,
-		*game.render_state.bindless_descriptor_set,
+		*r_ctx.bindless_system.descriptor_set,
 		0,
 		null,
+	);
+
+	cmd_push_constants(
+		cmd,
+		game.render_state.tonemapper_pipeline_layout,
+		GPUPostProcessingPushConstants.{
+            resolved_image = game.render_state.temp_resources.resolved_image,
+            tony_mc_mapface = game.render_state.temp_resources.tony_mc_mapface,
+            sampler = game.render_state.temp_resources.default_sampler,
+		},
+        .COMPUTE_BIT,
 	);
 
 	vkCmdDispatch(
@@ -946,7 +863,9 @@ calculate_shadow_view_projection_matrices :: (near: f32 = 0.1, far: f32 = 300) {
 		test_far := near + split_dist * clip_range;
 
 		world_to_clip := get_current_projection_matrix_clipped(near = last_near, far = test_far) * get_current_view_matrix();
-		clip_to_world := inverse(world_to_clip);
+        ok: bool;
+        clip_to_world: Mat4x4;
+		ok, clip_to_world = inverse(world_to_clip);
 
 		CORNERS_NDC :: Vec4.[
 			.{-1.0, -1.0, -1.0, 1.0},
@@ -1044,6 +963,7 @@ update_buffers :: () {
 	global_uniform_data.environment.num_point_lights = xx entities_count(Point_Light);
 	global_uniform_data.cascade_world_to_shadows = current_frame_game().cascade_matrices_buffer.ptr;
 	global_uniform_data.cascade_configs = current_frame_game().cascade_configs_buffer.ptr;
+    global_uniform_data.default_sampler = game.render_state.temp_resources.default_sampler;
 
 	write_buffer(*current_frame_game().cascade_matrices_buffer, game.render_state.cascade_world_to_shadows);
 	write_buffer(*current_frame_game().cascade_configs_buffer, game.render_state.cascade_configs);

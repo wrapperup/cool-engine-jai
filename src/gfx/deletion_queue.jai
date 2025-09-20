@@ -155,7 +155,7 @@ defer_destroy :: (
 }
 
 defer_destroy :: (
-	image: GPUImage,
+	image: GPU_Image,
 	debug: string = "UNKNOWN",
 	loc := #caller_location
 ) {

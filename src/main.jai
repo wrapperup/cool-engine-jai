@@ -3,9 +3,27 @@ f64 :: float64;
 
 game: *Game;
 
-#program_export
-game_init :: (del_queue_to_use: **Deletion_Queue) {
-	Remap_Context();
+main_logger :: (message: string, data: *void, info: Log_Info)
+{
+    #if RELEASE then return;
+    if info.common_flags == .VERBOSE_ONLY && context.log_level != .VERBOSE then return;
+    if info.common_flags == .VERY_VERBOSE_ONLY && context.log_level != .VERY_VERBOSE then return;
+
+    color := Console_Color.WHITE;
+    if info.common_flags == .ERROR then color = .RED;
+    if info.common_flags == .WARNING then color = .YELLOW;
+
+    to_standard_error := (info.common_flags & .ERROR) != 0;
+    
+    if message[message.count-1] != #char "\n" {
+        with_console_color(color, write_strings(message, "\n", to_standard_error = to_standard_error));
+    } else {
+        with_console_color(color, write_string(message, to_standard_error = to_standard_error));
+    }
+}
+
+main :: () {
+    context.logger = main_logger;
 
 	game = New(Game);
 
@@ -14,8 +32,7 @@ game_init :: (del_queue_to_use: **Deletion_Queue) {
 		assert(false, "Could not load SDL: %", to_string(SDL_GetError()));
 	}
 
-	sdl_flags: SDL_WindowFlags = SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE | 
-		SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_VULKAN;
+	sdl_flags: SDL_WindowFlags = SDL_WINDOW_HIDDEN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_VULKAN;
 
 	width: s32 = 1920;
 	height: s32 = 1080;
@@ -64,9 +81,6 @@ game_init :: (del_queue_to_use: **Deletion_Queue) {
 		enable_validation = DEBUG,
 		required_features = REQUIRED_FEATURES
 	});
-	del_queue_to_use.* = context.deletion_queue;
-
-	log("context.deletion_queue: %", context.deletion_queue);
 
 	if game.renderer == null {
 		log_error("Graphics could not be initialized.");
@@ -201,184 +215,119 @@ game_init :: (del_queue_to_use: **Deletion_Queue) {
 	game.start_live_time = current_time_monotonic();
 
 	lock_mouse(true);
-}
 
-#program_export 
-game_hotreloaded :: (mem: *void) {
-	Remap_Context();
+    SDL_ShowWindow(window);
 
-    result_sdl := SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_INIT_GAMECONTROLLER);
-	if result_sdl != 0 {
-		assert(false, "Could not load SDL: %", to_string(SDL_GetError()));
-	}
+    window_open := true;
+    while window_open {
+        if game.is_shutting_down {
+            window_open = false;
+        }
 
-	game = cast(*Game, mem);
-	set_renderer(game.renderer);
-	lock_mouse(game.input_system.mouse_locked);
+        scope_stat_time(.Total);
 
-	gfx_init_imgui();
-	configure_im();
-
-	log("Hot reloaded!");
-}
-
-#program_export
-game_pre_hotreload :: (mem: *void) {
-	Remap_Context();
-
-	gfx_shutdown_imgui();
-}
-
-#program_export
-game_update :: () -> bool {
-	Remap_Context();
-
-
-	if game.is_shutting_down then return false;
-
-	scope_stat_time(.Total);
-
-	if SDL_GetWindowFlags(game.window) & SDL_WINDOW_INPUT_FOCUS {
-		ma_engine_set_volume(*game.sound_system.sound_engine, 1.0);
-	} else {
-		ma_engine_set_volume(*game.sound_system.sound_engine, 0.0);
-	}
-	game.live_time = to_float64_seconds(current_time_monotonic() - game.start_live_time);
-	game.delta_time = to_float64_seconds(current_time_monotonic() - game.frame_time_start);
-	game.frame_time_start = current_time_monotonic();
-
-	dt := game.delta_time;
-
-	mouse_x, mouse_y: s32;
-	// SDL_GetRelativeMouseState(*mouse_x, *mouse_y);
-
-	clear_input_state();
-
-	event: SDL_Event;
-	while SDL_PollEvent(*event) {
-		ImGui_ImplSDL2_ProcessEvent(*event);
-
-		if event.type == {
-			case SDL_QUIT;
-				game.is_shutting_down = true;
-			case SDL_KEYUP;
-				// if event.key.keysym.sym == SDLK_ESCAPE {
-				// 	game.is_shutting_down = true;
-				// }
-			case SDL_KEYDOWN;
-				if event.key.keysym.sym == SDLK_F11 {
-					game.is_fullscreen = !game.is_fullscreen;
-					SDL_SetWindowFullscreen(game.window, xx ifx game.is_fullscreen then SDL_WINDOW_FULLSCREEN_DESKTOP else 0);
-				}
-			case SDL_WINDOWEVENT;
-				if event.window.event == {
-					case SDL_WINDOWEVENT_MINIMIZED;
-						game.is_minimized = true;
-					case SDL_WINDOWEVENT_RESTORED;
-						game.is_minimized = false;
-				}
-		}
-
-		simulate_input(*event, mouse_x, mouse_y);
-	}
-
-	if game.is_minimized then return true;
-
-	ImGui_ImplVulkan_NewFrame();
-	ImGui_ImplSDL2_NewFrame();
-	ImGui.NewFrame();
-
-	{ // Update Physics
-		scope_stat_time(.Physics);
-
-		PxScene_simulate(game.phys.scene, xx dt, null, null, 0, true);
-		error: u32 = 0;
-		PxScene_fetchResults(game.phys.scene, true, *error);
-	}
-
-	{ // Update Game State
-		scope_stat_time(.GameState);
-
-		player := get_entity(game.state.player_id);
-
-		for * ball: get_entities(Ball) {
-			update_ball_fixed(ball);
-		}
-
-		update_player(player, dt);
-	}
-
-	update_imgui();
-
-	draw();
-
-	return true;
-}
-
-#program_export
-game_shutdown :: () {
-	Remap_Context();
-
-	PxControllerManager_release(game.phys.controller_manager);
-	PxScene_release(game.phys.scene);
-	PxPhysics_release(game.phys.physics);
-	PxDefaultCpuDispatcher_release(game.phys.dispatcher);
-	PxFoundation_release(game.phys.foundation);
-
-	gfx_shutdown();
-
-	log("Goodbye!");
-}
-
-#program_export
-game_memory :: () -> *void {
-	Remap_Context();
-
-	return game;
-}
-
-#if !HOT_RELOAD {
-    main_logger :: (message: string, data: *void, info: Log_Info)
-    {
-        #if RELEASE then return;
-        if info.common_flags == .VERBOSE_ONLY && context.log_level != .VERBOSE then return;
-        if info.common_flags == .VERY_VERBOSE_ONLY && context.log_level != .VERY_VERBOSE then return;
-
-        color := Console_Color.WHITE;
-        if info.common_flags == .ERROR then color = .RED;
-        if info.common_flags == .WARNING then color = .YELLOW;
-
-        to_standard_error := (info.common_flags & .ERROR) != 0;
-        
-        if message[message.count-1] != #char "\n" {
-            with_console_color(color, write_strings(message, "\n", to_standard_error = to_standard_error));
+        if SDL_GetWindowFlags(game.window) & SDL_WINDOW_INPUT_FOCUS {
+            ma_engine_set_volume(*game.sound_system.sound_engine, 1.0);
         } else {
-            with_console_color(color, write_string(message, to_standard_error = to_standard_error));
+            ma_engine_set_volume(*game.sound_system.sound_engine, 0.0);
         }
-    }
+        game.live_time = to_float64_seconds(current_time_monotonic() - game.start_live_time);
+        game.delta_time = to_float64_seconds(current_time_monotonic() - game.frame_time_start);
+        game.frame_time_start = current_time_monotonic();
 
-    main :: () {
-        context.logger = main_logger;
+        dt := game.delta_time;
 
-        game_init(*context.deletion_queue);
+        mouse_x, mouse_y: s32;
+        // SDL_GetRelativeMouseState(*mouse_x, *mouse_y);
 
-        window_open := true;
-        while window_open {
-            window_open = game_update();
-            reset_temporary_storage();
+        clear_input_state();
+
+        event: SDL_Event;
+        while SDL_PollEvent(*event) {
+            ImGui_ImplSDL2_ProcessEvent(*event);
+
+            if event.type == {
+                case SDL_QUIT;
+                    game.is_shutting_down = true;
+                case SDL_KEYUP;
+                    // if event.key.keysym.sym == SDLK_ESCAPE {
+                    // 	game.is_shutting_down = true;
+                    // }
+                case SDL_KEYDOWN;
+                    if event.key.keysym.sym == SDLK_F11 {
+                        game.is_fullscreen = !game.is_fullscreen;
+                        SDL_SetWindowFullscreen(game.window, xx ifx game.is_fullscreen then SDL_WINDOW_FULLSCREEN_DESKTOP else 0);
+                    }
+                case SDL_WINDOWEVENT;
+                    if event.window.event == {
+                        case SDL_WINDOWEVENT_MINIMIZED;
+                            game.is_minimized = true;
+                        case SDL_WINDOWEVENT_RESTORED;
+                            game.is_minimized = false;
+                    }
+            }
+
+            simulate_input(*event, mouse_x, mouse_y);
         }
+
+        if game.is_minimized {
+            continue;
+        }
+
+        ImGui_ImplVulkan_NewFrame();
+        ImGui_ImplSDL2_NewFrame();
+        ImGui.NewFrame();
+
+        { // Update Physics
+            scope_stat_time(.Physics);
+
+            PxScene_simulate(game.phys.scene, xx dt, null, null, 0, true);
+            error: u32 = 0;
+            PxScene_fetchResults(game.phys.scene, true, *error);
+        }
+
+        { // Update Game State
+            scope_stat_time(.GameState);
+
+            player := get_entity(game.state.player_id);
+
+            for * ball: get_entities(Ball) {
+                update_ball_fixed(ball);
+            }
+
+            update_player(player, dt);
+        }
+
+        update_imgui();
+
+        draw();
 
         reset_temporary_storage();
-        game_shutdown();
     }
 
-    #import "Print_Color";
+    reset_temporary_storage();
+
+    {
+        PxControllerManager_release(game.phys.controller_manager);
+        PxScene_release(game.phys.scene);
+        PxPhysics_release(game.phys.physics);
+        PxDefaultCpuDispatcher_release(game.phys.dispatcher);
+        PxFoundation_release(game.phys.foundation);
+
+        gfx_shutdown();
+
+        log("Goodbye!");
+    }
+
+    // print("\n\n **** First Leak Report: ****\n\n");
+    // report_memory_leaks();
 }
 
-#import "Basic";
+#import "Print_Color";
+#import "Basic"()(MEMORY_DEBUGGER=true);
+
 #import "File";
 #import "Math";
-#import "Remap_Context"(VERBOSE = false);
 #import "String";
 
 // External deps
@@ -392,7 +341,7 @@ Mikk :: #import "jai-mikktspace";
 ImGui :: #import "jai-imgui";
 Slang :: #import "slang-jai";
 
-#import,file "./gfx/module.jai";
+#import,file "./gfx/module.jai"(DEBUG=true);
 
 #load "config.jai";
 #load "dfg.jai";

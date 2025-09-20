@@ -6,7 +6,6 @@
 #import "Process";
 
 Compiler :: #import "Compiler";
-Hotreload_Platform :: #import,file "entrypoints/debug.jai";
 
 #if OS == .WINDOWS {
     Windows_Resources :: #import "Windows_Resources";
@@ -228,6 +227,9 @@ build_hotreloadable_platform :: (release := false) {
 
 message_loop :: (unique_pdb := true) {
     slang_builder: String_Builder;
+    append(*slang_builder, "import bindless;\n");
+    append(*slang_builder, "import types;\n\n");
+
     while true {
         message := Compiler.compiler_wait_for_message();
         if message.kind == {
@@ -235,7 +237,7 @@ message_loop :: (unique_pdb := true) {
                 typechecked := cast(*Compiler.Message_Typechecked) message;
                 for typechecked_struct: typechecked.structs {
                     struct_t := typechecked_struct.expression;
-                    if has_note(struct_t, "ShaderShared") {
+                    if has_note(struct_t.notes, "ShaderShared") {
                         struct_to_slang_struct(*slang_builder, struct_t);
                     }
                 }
@@ -256,15 +258,15 @@ message_loop :: (unique_pdb := true) {
                 complete := cast(*Compiler.Message_Complete) message;
 
                 if complete.error_code == .NONE {
-                    write_entire_file("./shaders/gen/structs.slang", *slang_builder);
+                    write_entire_file("./shaders/generated.slang", *slang_builder);
                 }
                 break;
         }
     }
 }
 
-has_note :: (struct_t: *Compiler.Code_Struct, note: string) -> bool {
-    for struct_t.notes  if it.text == note  return true;
+has_note :: (notes: [] *Compiler.Code_Note, note: string) -> bool {
+    for notes  if it.text == note  return true;
     return false;
 }
 
@@ -273,8 +275,9 @@ Type_Mapping :: struct {
     to:   string;
 }
 
-BANNED_TYPES :: string.[
-    "TextureId", // Raw Id is not allowed, must be assigned with the `@As(SlangType)` note.
+BANNED_TYPES :: Type_Mapping.[
+    .{ "ImageId", "// Raw ImageId is not allowed, must be mapped with a note. Eg: @Image2D<f32>" },
+    .{ "SamplerId", "// Raw SamplerId is not allowed, it must be mapped with a note. Eg: @Sampler or @SamplerComparison" },
 ];
 
 TYPE_MAPPING_TABLE :: Type_Mapping.[
@@ -286,6 +289,12 @@ TYPE_MAPPING_TABLE :: Type_Mapping.[
     .{ "Vector4", "Vec4" },
     .{ "Matrix4", "Mat4x4" },
     .{ "MaterialId", "u32" },
+    .{ "GPU_Ptr", "Ptr" },
+];
+
+RENAMABLE_TYPES :: Type_Mapping.[
+    .{ "ImageId",   "Image2D" },
+    .{ "SamplerId", "Sampler" },
 ];
 
 map_type_to_slang_mappings :: (type: string) -> string {
@@ -336,28 +345,11 @@ strip_gpu_name :: (s: string) -> string {
     }
 }
 
-unwrap_gpu_pointer :: (call: *Compiler.Code_Procedure_Call) -> *Compiler.Code_Ident {
+recurse_type_instantiation_to_string :: (inst: *Compiler.Code_Type_Instantiation) -> type_name: string, array_str: string {
     using Compiler;
 
-    if call.arguments_unsorted.count != 1 then        return null;
-    if call.procedure_expression.kind != .IDENT then  return null;
-
-    ident := call.procedure_expression.(*Code_Ident);
-    if ident.name != "GPU_Ptr" then return null; 
-
-    arg := call.arguments_unsorted[0];
-    assert(arg.expression.kind == .IDENT, "GPU_Ptr polymorph member must be an ident. It was %", arg.expression.kind);
-
-    return arg.expression.(*Code_Ident); 
-}
-
-recurse_type_instantiation_to_string :: (
-    inst: *Compiler.Code_Type_Instantiation, 
-    num_ptrs: *s64,
-    array_sizes: *[..] s64,
-    template_args: *[..] string
-) -> string {
-    using Compiler;
+    name_builder: String_Builder;
+    array_builder: String_Builder;
 
     // Handle array.
     if inst.array_element_type {
@@ -370,13 +362,16 @@ recurse_type_instantiation_to_string :: (
         assert(!(dimensions.value_flags & .FLOAT), "Array literal is a float...?");
         assert(!(dimensions.value_flags & .MINUS_SIGN), "Array literal is a signed number...?");
 
-        array_add(array_sizes, dimensions.values._u64.(s64));
+        inner_type_name, inner_array_string := 
+            recurse_type_instantiation_to_string(inst.array_element_type);
 
-        return recurse_type_instantiation_to_string(inst.array_element_type, num_ptrs, array_sizes, template_args);
+        print_to_builder(*array_builder, "%[%]",inner_array_string, dimensions.values._u64);
+
+        return inner_type_name, builder_to_string(*array_builder);
     }
 
     assert(inst.must_implement == null, "has must impl???");
-    assert(inst.pointer_to == null, "pointers disalloweed");
+    assert(inst.pointer_to == null, "pointers disallowed");
 
     expr := inst.type_valued_expression;
 
@@ -384,37 +379,45 @@ recurse_type_instantiation_to_string :: (
         case .IDENT;
             ident := expr.(*Code_Ident);
 
-            return ident.name;
+            return map_type_to_slang_mappings(ident.name), "";
 
         case .PROCEDURE_CALL; // Struct polymorph
-            proc_call := expr.(*Code_Procedure_Call);
+            call := expr.(*Code_Procedure_Call);
 
-            inner_type := unwrap_gpu_pointer(proc_call);
-            if inner_type {
-                num_ptrs.* += 1;
-                return inner_type.name;
+            assert(call.procedure_expression.kind == .IDENT, "ermmm");
+            ident := call.procedure_expression.(*Code_Ident);
+
+            print_to_builder(*name_builder, "%<", map_type_to_slang_mappings(ident.name));
+
+            for * arg: call.arguments_unsorted {
+                assert(arg.expression.kind == .IDENT, "Polymorph member must be an ident. It was %", arg.expression.kind);
+
+                if it_index != call.arguments_unsorted.count-1 {
+                    print_to_builder(*name_builder, ",");
+                }
+
+                print_to_builder(*name_builder, map_type_to_slang_mappings(arg.expression.(*Code_Ident).name));
             }
 
-            assert(proc_call.procedure_expression.kind == .IDENT, "ermmm");
+            print_to_builder(*name_builder, ">");
 
-            ident := proc_call.procedure_expression.(*Code_Ident);
-            return ident.name;
+            return builder_to_string(*name_builder), "";
 
         case;
             assert(false, "Unsupported type expression on shader struct %.", expr);
     } 
 
-    return "";
+    return "", "";
 }
 
-is_banned_type :: (type_string: string) -> bool {
+is_banned_type :: (type_string: string) -> bool, string {
     for BANNED_TYPES {
-        if it == type_string {
-            return true;
+        if it.from == type_string {
+            return true, it.to;
         }
     }
 
-    return false;
+    return false, "";
 }
 
 parse_into_slang_member :: (decl: *Compiler.Code_Declaration, indent: s64) -> member_string: string {
@@ -424,40 +427,22 @@ parse_into_slang_member :: (decl: *Compiler.Code_Declaration, indent: s64) -> me
         print_to_builder(*builder, "    ");
     }
 
-    num_ptrs := 0;
-    array_sizes: [..] s64;
-    template_args: [..] string;
-    defer array_free(array_sizes);
-
     assert(decl.type_inst != null, "No type instantiation...");
 
-    type_string := recurse_type_instantiation_to_string(decl.type_inst, *num_ptrs, *array_sizes, *template_args);
-    type_string = map_type_to_slang_mappings(type_string);
+    type_string, array_string := recurse_type_instantiation_to_string(decl.type_inst);
 
-    if is_banned_type(type_string) {
-        assert(false, "Type is banned. If it's a texture type, use the `@As()` note to modify the type in the shader.");
+    if decl.notes.count == 1 {
+        type_string = decl.notes[0].text;
+    }
+
+    banned, message := is_banned_type(type_string);
+    if banned {
+        assert(false, message);
     }
 
     print_to_builder(*builder, "% ", type_string);
-
-    if num_ptrs > 0 && array_sizes.count > 0 {
-        print_to_builder(*builder, "(");
-    }
-
-    for 0..num_ptrs-1 {
-        print_to_builder(*builder, "*");
-    }
-
-    print_to_builder(*builder, "%", decl.name);
-
-    if num_ptrs > 0 && array_sizes.count > 0 {
-        print_to_builder(*builder, ")");
-    }
-
-    for array_sizes {
-        print_to_builder(*builder, "[%]", it);
-    }
-
+    print_to_builder(*builder, decl.name);
+    print_to_builder(*builder, array_string);
     print_to_builder(*builder, ";\n");
 
     return builder_to_string(*builder);

@@ -1,19 +1,3 @@
-// TODO: Un-hard code this stuff.
-SHADOW_ID          :: Tex2DArray.{ 0 };
-TONY_MC_MAPFACE_ID :: Tex3D.{ 1 };
-DFG_ID             :: Tex2D.{ 2 };
-ENVIRONMENT_MAP_ID :: TexCube.{ 3 };
-
-DEFAULT_SAMPLER_ID     :: SamplerId.{ 0 };
-SHADOW_SAMPLER_ID      :: SamplerId.{ 1 };
-ENVIRONMENT_SAMPLER_ID :: SamplerId.{ 2 };
-
-RESOLVED_IMAGE_ID :: RWTex2D.{ 0 };
-
-MAX_BINDLESS_IMAGES :: 100;
-RESERVED_BINDLESS_IMAGES_COUNT :: 10;
-MAX_BINDLESS_SAMPLERS :: 32;
-
 NUM_CASCADES: u32 : 3;
 
 GPUDrawPushConstants :: struct @ShaderShared {
@@ -22,8 +6,12 @@ GPUDrawPushConstants :: struct @ShaderShared {
 	model_matrices: GPU_Ptr(Mat4x4);
 	materials:      GPU_Ptr(GPU_PBR_Material);
 	model_index:    u32;
-	material_index: MaterialId;
 	num_cascades:   u32;
+
+    material_index: MaterialId;
+
+    shadow_depth:   ImageId;   @Image2DArray<f32>
+    shadow_sampler: SamplerId; @SamplerComparison
 }
 
 GPUDrawShadowDepthPushConstants :: struct @ShaderShared {
@@ -47,16 +35,26 @@ GPUSkyboxPushConstants :: struct @ShaderShared {
 	global_data:   GPU_Ptr(GPUGlobalData);
 }
 
+GPUPostProcessingPushConstants :: struct @ShaderShared {
+    resolved_image:  ImageId; @RWImage2D
+    tony_mc_mapface: ImageId; @Image3D<Vec3>
+    sampler:         SamplerId;
+}
+
 GPU_PBR_Material :: struct @ShaderShared {
-	base_color:            Tex2D;
-	normal_map:            Tex2D;
-	ao_roughness_metallic: Tex2D;
+	base_color:            ImageId;
+	normal_map:            ImageId;
+	ao_roughness_metallic: ImageId;
 }
 
 GPUEnvironment :: struct @ShaderShared {
 	sh_volume:        GPU_Ptr(Sh_Coefficients);
 	point_lights:     GPU_Ptr(GPU_Point_Light);
 	num_point_lights: u32;
+
+    env_map:     ImageId; @ImageCube
+    dfg:         ImageId; @Image2D
+    env_sampler: SamplerId;
 }
 
 GPUCascadeConfig :: struct @ShaderShared {
@@ -66,6 +64,8 @@ GPUCascadeConfig :: struct @ShaderShared {
 }
 
 GPUGlobalData :: struct @ShaderShared {
+	environment: GPUEnvironment;
+
 	cascade_world_to_shadows: GPU_Ptr(Mat4x4);
 	cascade_configs:          GPU_Ptr(GPUCascadeConfig);
 	view_to_clip:             Mat4x4;
@@ -74,5 +74,6 @@ GPUGlobalData :: struct @ShaderShared {
 	sky_color:                Vec3;
 	camera_pos:               Vec3;
 	sun_direction:            Vec3;
-	environment:              GPUEnvironment;
+
+    default_sampler: SamplerId;
 }

@@ -1,17 +1,36 @@
-Move_Mode :: enum {
-	Ground;
-	Noclip;
-}
+Story_Progress :: struct {
+    // Chapter Progress
+    current_chapter: enum {
+        Chapter1;
+        Chapter2;
+        Chapter3;
+        Chapter4;
+        Chapter5;
+        Chapter6;
+    };
 
-Fire_Mode :: enum {
-	CreatePointLight;
-	LaunchForward;
-}
+    // Chapter 1
+    visited_home: enum { No; Approached; Entered; };
+
+    // Chapter 2
+    dated: bool;
+
+    // Chapter 3
+} @Serializable
 
 Player :: struct {
 	using #as entity: *Entity;
 
-	move_mode:                  Move_Mode;
+	move_mode: enum {
+        Ground;
+        Noclip;
+    }
+
+	fire_mode: enum {
+        CreatePointLight;
+        LaunchForward;
+    };
+
 	controller:                 *PxController;
 	camera_rot:                 Vec3;
 	camera_fov_deg:             f32;
@@ -24,7 +43,6 @@ Player :: struct {
 	footstep:                   u32;
 	camera_shake_time:          f64;
 	temp_cycler:                u32;
-	fire_mode:                  Fire_Mode;
 }
 
 on_shape_hit_callback :: (userData: *void, hit: *PxControllerShapeHit) #c_call {
@@ -150,8 +168,10 @@ update_player :: (player: *Player, dt: f64) {
 	move_direction_n := normalize(move_forward * forward + move_right * right);
 
 	if action_just_pressed(.ToggleNoclip) {
-		player.move_mode += 1;
-		player.move_mode = xx (cast(s64, player.move_mode) % count_of(Move_Mode));
+        if player.move_mode == {
+            case .Ground; player.move_mode = .Noclip;
+            case .Noclip;   player.move_mode = .Ground;
+        }
 	}
 
 	set_listener_position(player.translation, camera_forward);
@@ -210,9 +230,9 @@ update_player :: (player: *Player, dt: f64) {
 
 			player.velocity += .{0, -70, 0} * cast(f32, dt);
 
-			if action_is_pressed(.AltFire) {
-				player.fire_mode = xx ((cast(s64) player.fire_mode + 1) % count_of(Fire_Mode));
-			}
+			// if action_is_pressed(.AltFire) {
+			// 	player.fire_mode = xx ((cast(s64) player.fire_mode + 1) % count_of(Fire_Mode));
+			// }
 
 			if action_just_pressed(.Fire) {
 				log("Fire");
@@ -350,7 +370,8 @@ player_get_view_matrix :: (player: *Player) -> Mat4x4 {
 	translation_mat := make_translation_matrix4(translation);
 	rotation_mat := rotation_matrix(Mat4x4, rotation);
 
-	return inverse(translation_mat * rotation_mat);
+	_, mat := inverse(translation_mat * rotation_mat);
+    return mat;
 }
 
 player_get_fov :: (player: *Player) -> f32 {

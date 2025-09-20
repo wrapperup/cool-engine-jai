@@ -1,13 +1,19 @@
 import bindless;
 import brdf;
 import common;
-import consts;
 import types;
 
-Vec3 evaluate_specular_ibl(Vec3 r, f32 perceptualRoughness) {
+struct PBR_Params {
+    ImageCube env_map;
+    Image2D dfg;
+    Sampler env_sampler;
+    Sampler default_sampler;
+}
+
+Vec3 evaluate_specular_ibl(PBR_Params params, Vec3 r, f32 perceptualRoughness) {
     // This assumes a 256x256 cubemap, with 9 mip levels
     let lod = 8.0 * perceptualRoughness;
-    return ENVIRONMENT_MAP_ID.sample_level(ENVIRONMENT_SAMPLER_ID, r, lod).rgb;
+    return params.env_map.sample_level(params.env_sampler, r, lod).rgb;
 }
 
 Vec3 irradiance_sh(Vec3 n, Sh_Coefficients sh) {    
@@ -29,29 +35,28 @@ Vec3 irradiance_sh(Vec3 n, Sh_Coefficients sh) {
     return max(color, 0);
 }
 
-/**
-Vec3 irradiance_sh_volume(Vec3 position, Vec3 n, Sh_Coefficients *volume, Mat4x4 world_to_volume, uint3 size) {    
-    let pos = world_to_volume * Vec4(position, 0.f);
-        
-    let Ld = irradiance_sh(n, volume[clamp(index, 0, 242)]);
+// Vec3 irradiance_sh_volume(Vec3 position, Vec3 n, Sh_Coefficients *volume, Mat4x4 world_to_volume) {    
+//     let pos = mul(world_to_volume, Vec4(position, 0.f));
+//     u32 index = u32(pos.x) + u32(pos.y * 9) + u32(pos.z * 3);
+//
+//     let Ld = irradiance_sh(n, volume[clamp(index, 0, 242)]);
+//
+//     return Ld;
+// }
 
-    return Ld;
-}
-*/
-
-Vec3 sample_dfg(f32 NoV, f32 p_roughness) {
+Vec3 sample_dfg(PBR_Params params, f32 NoV, f32 p_roughness) {
     let linear_roughness = p_roughness * p_roughness;
-    return DFG_ID.sample(DEFAULT_SAMPLER_ID, Vec2(NoV, linear_roughness)).rgb;
+    return params.dfg.sample(params.default_sampler, Vec2(NoV, linear_roughness)).rgb;
 }
 
-Vec3 evaluate_ibl(Vec3 n, Vec3 v, Vec3 diffuse_color, Vec3 f0, f32 p_roughness, Sh_Coefficients sh) {
+Vec3 evaluate_ibl(PBR_Params params, Vec3 n, Vec3 v, Vec3 diffuse_color, Vec3 f0, f32 p_roughness, Sh_Coefficients sh) {
     let f90 = saturate(dot(f0, Vec3(50.0 * 0.33)));
 
     let NoV = max(dot(n, v), 0.0);
     let r = reflect(-v, n);
 
-    let Lld = evaluate_specular_ibl(r, p_roughness);
-    let Ldfg = sample_dfg(NoV, p_roughness).rg;
+    let Lld = evaluate_specular_ibl(params, r, p_roughness);
+    let Ldfg = sample_dfg(params, NoV, p_roughness).rg;
 
 #ifdef MULTISCATTERING
     let Lr = lerp(Ldfg.xxx, Ldfg.yyy, f0);

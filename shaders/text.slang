@@ -69,8 +69,7 @@ struct FragmentOutput {
 
 [shader("fragment")]
 FragmentOutput fragment_main(FragmentInput in) {
-    let text_color = pc.atlas.sample(pc.sampler, in.uv);
-    let frag_color = saturate(in.color * Vec4(text_color.r).r));
+    let frag_color = saturate(in.color * Vec4(pc.atlas.sample(pc.sampler, in.uv).r));
 
     return {
       frag_color,

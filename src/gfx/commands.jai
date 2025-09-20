@@ -1,3 +1,7 @@
+cmd_bind_pipeline :: () {
+    
+}
+
 cmd_push_constants :: (
     cmd: VkCommandBuffer,
     pipeline_layout: VkPipelineLayout,
