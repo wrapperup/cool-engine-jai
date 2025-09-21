@@ -1,6 +1,11 @@
 import bindless;
 import types;
 
+struct SkeletonVertexAttribute {
+    u8 joints[4];
+    f32 weights[4];
+}
+
 struct PostProcessingPushConstants {
     RWImage2D resolved_image;
     Image3D<Vec3> tony_mc_mapface;
@@ -17,11 +22,6 @@ struct CascadeConfig {
     f32 split_dist;
     f32 bias;
     f32 slope_bias;
-}
-
-struct SkeletonVertexAttribute {
-    u8 joints[4];
-    f32 weights[4];
 }
 
 struct Vertex {

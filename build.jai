@@ -276,8 +276,8 @@ Type_Mapping :: struct {
 }
 
 BANNED_TYPES :: Type_Mapping.[
-    .{ "ImageId", "// Raw ImageId is not allowed, must be mapped with a note. Eg: @Image2D<f32>" },
-    .{ "SamplerId", "// Raw SamplerId is not allowed, it must be mapped with a note. Eg: @Sampler or @SamplerComparison" },
+    .{ "ImageId", "Raw ImageId is not allowed, must be mapped with a note. Eg: @Image2D<f32>" },
+    .{ "SamplerId", "Raw SamplerId is not allowed, it must be mapped with a note. Eg: @Sampler or @SamplerComparison" },
 ];
 
 TYPE_MAPPING_TABLE :: Type_Mapping.[
@@ -310,12 +310,18 @@ map_type_to_slang_mappings :: (type: string) -> string {
 struct_to_slang_struct :: (builder: *String_Builder, struct_t: *Compiler.Code_Struct) -> bool {
     info := struct_t.defined_type;
 
-    assert(struct_t.modify_directives.count == 0, "No modifiers allowed on this struct.");
-    assert(struct_t.textual_flags == 0, "No struct modifier directives allowed.");
+    if struct_t.modify_directives.count != 0 {
+        Compiler.compiler_report("No modifiers allowed on this struct.", loc = Compiler.make_location(struct_t));
+    }
+    if struct_t.textual_flags != 0 {
+        Compiler.compiler_report("No struct modifier directives allowed.", loc = Compiler.make_location(struct_t));
+    }
 
     print_to_builder(builder, "struct % {\n", strip_gpu_name(info.(*Type_Info_Struct).name));
     for node: struct_t.block.statements {
-        assert(node.kind == .DECLARATION, "Only constant declarations are allowed.");
+        if node.kind != .DECLARATION {
+            Compiler.compiler_report("No struct modifier directives allowed.", loc = Compiler.make_location(node));
+        }
 
         decl := node.(*Compiler.Code_Declaration);
 
@@ -353,14 +359,20 @@ recurse_type_instantiation_to_string :: (inst: *Compiler.Code_Type_Instantiation
 
     // Handle array.
     if inst.array_element_type {
-        assert(inst.array_dimension != null, "Fixed arrays only!!!");
+        if inst.array_dimension == null {
+            Compiler.compiler_report("Only fixed-size arrays are allowed.", loc = Compiler.make_location(inst));
+        }
 
         dimensions := inst.array_dimension.(*Code_Literal);
 
-        assert(dimensions.value_type == .NUMBER, "Array literal is not a number...?");
+        good_array_value := 
+            dimensions.value_type == .NUMBER && 
+            !(dimensions.value_flags & .FLOAT) && 
+            !(dimensions.value_flags & .MINUS_SIGN);
 
-        assert(!(dimensions.value_flags & .FLOAT), "Array literal is a float...?");
-        assert(!(dimensions.value_flags & .MINUS_SIGN), "Array literal is a signed number...?");
+        if !good_array_value {
+            Compiler.compiler_report("Only positive integers are allowed.", loc = Compiler.make_location(dimensions));
+        }
 
         inner_type_name, inner_array_string := 
             recurse_type_instantiation_to_string(inst.array_element_type);
@@ -370,8 +382,13 @@ recurse_type_instantiation_to_string :: (inst: *Compiler.Code_Type_Instantiation
         return inner_type_name, builder_to_string(*array_builder);
     }
 
-    assert(inst.must_implement == null, "has must impl???");
-    assert(inst.pointer_to == null, "pointers disallowed");
+    if inst.must_implement != null {
+        Compiler.compiler_report("Interfaces are not allowed.", Compiler.make_location(inst));
+    }
+
+    if inst.pointer_to != null {
+        Compiler.compiler_report("Pointers are not allowed.", Compiler.make_location(inst));
+    }
 
     expr := inst.type_valued_expression;
 
@@ -384,13 +401,17 @@ recurse_type_instantiation_to_string :: (inst: *Compiler.Code_Type_Instantiation
         case .PROCEDURE_CALL; // Struct polymorph
             call := expr.(*Code_Procedure_Call);
 
-            assert(call.procedure_expression.kind == .IDENT, "ermmm");
+            if call.procedure_expression.kind != .IDENT {
+                Compiler.compiler_report("Member type must be an identifier.", Compiler.make_location(call.procedure_expression));
+            }
             ident := call.procedure_expression.(*Code_Ident);
 
             print_to_builder(*name_builder, "%<", map_type_to_slang_mappings(ident.name));
 
             for * arg: call.arguments_unsorted {
-                assert(arg.expression.kind == .IDENT, "Polymorph member must be an ident. It was %", arg.expression.kind);
+                if arg.expression.kind != .IDENT {
+                    Compiler.compiler_report(tprint("Polymorph member must be an ident. It was %", arg.expression.kind), Compiler.make_location(arg.expression));
+                }
 
                 if it_index != call.arguments_unsorted.count-1 {
                     print_to_builder(*name_builder, ",");
@@ -404,20 +425,18 @@ recurse_type_instantiation_to_string :: (inst: *Compiler.Code_Type_Instantiation
             return builder_to_string(*name_builder), "";
 
         case;
-            assert(false, "Unsupported type expression on shader struct %.", expr);
+            Compiler.compiler_report(tprint("Unsupported type expression on shader struct %", expr), Compiler.make_location(expr));
     } 
 
     return "", "";
 }
 
-is_banned_type :: (type_string: string) -> bool, string {
+check_banned_type :: (type_string: string, node: *Compiler.Code_Node) {
     for BANNED_TYPES {
         if it.from == type_string {
-            return true, it.to;
+            Compiler.compiler_report(it.to, loc = Compiler.make_location(node));
         }
     }
-
-    return false, "";
 }
 
 parse_into_slang_member :: (decl: *Compiler.Code_Declaration, indent: s64) -> member_string: string {
@@ -427,7 +446,9 @@ parse_into_slang_member :: (decl: *Compiler.Code_Declaration, indent: s64) -> me
         print_to_builder(*builder, "    ");
     }
 
-    assert(decl.type_inst != null, "No type instantiation...");
+    if decl.type_inst == null {
+        Compiler.compiler_report("There is no type instantiation. This shouldn't happen.", Compiler.make_location(decl));
+    }
 
     type_string, array_string := recurse_type_instantiation_to_string(decl.type_inst);
 
@@ -435,10 +456,7 @@ parse_into_slang_member :: (decl: *Compiler.Code_Declaration, indent: s64) -> me
         type_string = decl.notes[0].text;
     }
 
-    banned, message := is_banned_type(type_string);
-    if banned {
-        assert(false, message);
-    }
+    check_banned_type(type_string, decl);
 
     print_to_builder(*builder, "% ", type_string);
     print_to_builder(*builder, decl.name);

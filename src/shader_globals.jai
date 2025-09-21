@@ -38,13 +38,13 @@ GPUSkyboxPushConstants :: struct @ShaderShared {
 GPUPostProcessingPushConstants :: struct @ShaderShared {
     resolved_image:  ImageId; @RWImage2D
     tony_mc_mapface: ImageId; @Image3D<Vec3>
-    sampler:         SamplerId;
+    sampler:         SamplerId; @Sampler
 }
 
 GPU_PBR_Material :: struct @ShaderShared {
-	base_color:            ImageId;
-	normal_map:            ImageId;
-	ao_roughness_metallic: ImageId;
+	base_color:            ImageId; @Image2D
+	normal_map:            ImageId; @Image2D
+	ao_roughness_metallic: ImageId; @Image2D
 }
 
 GPUEnvironment :: struct @ShaderShared {
@@ -54,7 +54,7 @@ GPUEnvironment :: struct @ShaderShared {
 
     env_map:     ImageId; @ImageCube
     dfg:         ImageId; @Image2D
-    env_sampler: SamplerId;
+    env_sampler: SamplerId; @Sampler
 }
 
 GPUCascadeConfig :: struct @ShaderShared {
@@ -75,5 +75,5 @@ GPUGlobalData :: struct @ShaderShared {
 	camera_pos:               Vec3;
 	sun_direction:            Vec3;
 
-    default_sampler: SamplerId;
+    default_sampler: SamplerId; @Sampler
 }
