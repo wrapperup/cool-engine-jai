@@ -1,15 +1,15 @@
-Sh_Coefficients :: struct @ShaderShared {
+ShCoefficients :: struct @ShaderShared {
 	coef: [9]Vec4;
 }
 
-process_sh_coefficients_from_cubemap_file :: (in_filename: string) -> Sh_Coefficients {
+process_sh_coefficients_from_cubemap_file :: (in_filename: string) -> ShCoefficients {
 	buffer, w, h := load_image_into_bytes(in_filename);
 	coeffs := process_sh_from_cubemap(buffer, w);
 
 	return coeffs;
 }
 
-process_sh_coefficients_from_equirectangular_file :: (in_filename: string, loc := #caller_location) -> Sh_Coefficients {
+process_sh_coefficients_from_equirectangular_file :: (in_filename: string, loc := #caller_location) -> ShCoefficients {
 	buffer, w, h := load_image_into_bytes(in_filename, loc);
 	coeffs := process_sh_from_equirectangular(buffer, w);
 
@@ -56,7 +56,7 @@ CUBEMAP_FACE_NORMALS_TABLE :: ([3]Vec3).[
 ];
 
 
-process_sh_from_cubemap :: (faces: []Vec4, size: int) -> Sh_Coefficients {
+process_sh_from_cubemap :: (faces: []Vec4, size: int) -> ShCoefficients {
 	// Forsyth's weights
 	weight1: f32 = 4.0 / 17.0;
 	weight2: f32 = 8.0 / 17.0;
@@ -64,7 +64,7 @@ process_sh_from_cubemap :: (faces: []Vec4, size: int) -> Sh_Coefficients {
 	weight4: f32 = 5.0 / 68.0;
 	weight5: f32 = 15.0 / 68.0;
 
-	sh: Sh_Coefficients;
+	sh: ShCoefficients;
 
 	weight_accum: f32 = 0.0;
 
@@ -134,7 +134,7 @@ process_sh_from_cubemap :: (faces: []Vec4, size: int) -> Sh_Coefficients {
 	return sh;
 }
 
-process_sh_from_equirectangular :: (equirectangular: []Vec4, width: int) -> Sh_Coefficients {
+process_sh_from_equirectangular :: (equirectangular: []Vec4, width: int) -> ShCoefficients {
 	// Forsyth's weights
 	weight1: f32 = 4.0 / 17.0;
 	weight2: f32 = 8.0 / 17.0;
@@ -142,7 +142,7 @@ process_sh_from_equirectangular :: (equirectangular: []Vec4, width: int) -> Sh_C
 	weight4: f32 = 5.0 / 68.0;
 	weight5: f32 = 15.0 / 68.0;
 
-	sh: Sh_Coefficients;
+	sh: ShCoefficients;
 
 	weight_accum: f32 = 0.0;
 

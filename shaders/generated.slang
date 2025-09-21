@@ -1,11 +1,6 @@
 import bindless;
 import types;
 
-struct SkeletonVertexAttribute {
-    u8 joints[4];
-    f32 weights[4];
-}
-
 struct PostProcessingPushConstants {
     RWImage2D resolved_image;
     Image3D<Vec3> tony_mc_mapface;
@@ -24,13 +19,9 @@ struct CascadeConfig {
     f32 slope_bias;
 }
 
-struct Vertex {
-    Vec3 position;
-    f32 uv_x;
-    Vec3 normal;
-    f32 uv_y;
-    Vec4 color;
-    Vec4 tangent;
+struct SkeletonVertexAttribute {
+    u8 joints[4];
+    f32 weights[4];
 }
 
 struct Point_Light {
@@ -40,7 +31,16 @@ struct Point_Light {
     f32 lumens;
 }
 
-struct Sh_Coefficients {
+struct Vertex {
+    Vec3 position;
+    f32 uv_x;
+    Vec3 normal;
+    f32 uv_y;
+    Vec4 color;
+    Vec4 tangent;
+}
+
+struct ShCoefficients {
     Vec4 coef[9];
 }
 
@@ -78,7 +78,7 @@ struct SkyboxPushConstants {
 }
 
 struct Environment {
-    Ptr<Sh_Coefficients> sh_volume;
+    Ptr<ShCoefficients> sh_volume;
     Ptr<Point_Light> point_lights;
     u32 num_point_lights;
     ImageCube env_map;

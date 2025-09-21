@@ -16,7 +16,7 @@ Vec3 evaluate_specular_ibl(PBR_Params params, Vec3 r, f32 perceptualRoughness) {
     return params.env_map.sample_level(params.env_sampler, r, lod).rgb;
 }
 
-Vec3 irradiance_sh(Vec3 n, Sh_Coefficients sh) {    
+Vec3 irradiance_sh(Vec3 n, ShCoefficients sh) {    
     let x = -n.z;
     let y = n.x;
     let z = n.y;
@@ -35,7 +35,7 @@ Vec3 irradiance_sh(Vec3 n, Sh_Coefficients sh) {
     return max(color, 0);
 }
 
-// Vec3 irradiance_sh_volume(Vec3 position, Vec3 n, Sh_Coefficients *volume, Mat4x4 world_to_volume) {    
+// Vec3 irradiance_sh_volume(Vec3 position, Vec3 n, ShCoefficients *volume, Mat4x4 world_to_volume) {    
 //     let pos = mul(world_to_volume, Vec4(position, 0.f));
 //     u32 index = u32(pos.x) + u32(pos.y * 9) + u32(pos.z * 3);
 //
@@ -49,7 +49,7 @@ Vec3 sample_dfg(PBR_Params params, f32 NoV, f32 p_roughness) {
     return params.dfg.sample(params.default_sampler, Vec2(NoV, linear_roughness)).rgb;
 }
 
-Vec3 evaluate_ibl(PBR_Params params, Vec3 n, Vec3 v, Vec3 diffuse_color, Vec3 f0, f32 p_roughness, Sh_Coefficients sh) {
+Vec3 evaluate_ibl(PBR_Params params, Vec3 n, Vec3 v, Vec3 diffuse_color, Vec3 f0, f32 p_roughness, ShCoefficients sh) {
     let f90 = saturate(dot(f0, Vec3(50.0 * 0.33)));
 
     let NoV = max(dot(n, v), 0.0);

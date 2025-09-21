@@ -1,17 +1,114 @@
-ShaderCreatePipelineCallback :: #type (VkShaderModule) -> VkPipeline;
-
 // TODO: Factor out the shader from the renderer.
-ShaderId :: #type,isa u32;
-
-Shader :: struct {
-	pipeline:                 VkPipeline;
-	file:                     Shader_File;
-	extra_files:              [] Shader_File;
-	needs_recompile:          bool;
-	pipeline_create_callback: ShaderCreatePipelineCallback;
+ShaderManager :: struct {
+    graphics_shaders: [..] Shader(GraphicsPipeline);
+    compute_shaders: [..] Shader(ComputePipeline);
 }
 
-Shader_File :: struct {
+add_graphics_shader :: (path: string, pipeline_create_callback: (VkShaderModule) -> GraphicsPipeline) -> *GraphicsPipeline {
+	shader := init_shader(GraphicsPipeline, path, pipeline_create_callback);
+    array_add(*game.render_state.shader_manager.graphics_shaders, shader);
+    return shader.pipeline;
+}
+
+add_compute_shader :: (path: string, pipeline_create_callback: (VkShaderModule) -> ComputePipeline) -> *ComputePipeline {
+	shader := init_shader(ComputePipeline, path, pipeline_create_callback);
+	array_add(*game.render_state.shader_manager.compute_shaders, shader);
+	return shader.pipeline;
+}
+
+remove_shader :: (pipeline: *GraphicsPipeline) {
+    shaders := *game.render_state.shader_manager.graphics_shaders;
+
+    index: int;
+    for * (shaders.*) {
+        if it.pipeline == pipeline {
+            index = it_index;
+            break;
+        }
+    }
+
+    array_unordered_remove_by_index(shaders, index);
+    return;
+}
+
+remove_shader :: (pipeline: *ComputePipeline) {
+    shaders := *game.render_state.shader_manager.compute_shaders;
+
+    index: int;
+    for * (shaders.*) {
+        if it.pipeline == pipeline {
+            index = it_index;
+            break;
+        }
+    }
+
+    array_unordered_remove_by_index(shaders, index);
+    return;
+}
+
+check_shader_hotreload :: () -> bool {
+    graphics_shaders := game.render_state.shader_manager.graphics_shaders;
+    compute_shaders := game.render_state.shader_manager.compute_shaders;
+
+	needs_reload := false;
+	// TODO: SPEED: Maybe iter this across frames?
+	for * shader: graphics_shaders {
+		if is_outdated(shader) {
+			shader.needs_recompile = true;
+			needs_reload = true;
+		}
+	}
+
+	for * shader: compute_shaders {
+		if is_outdated(shader) {
+			shader.needs_recompile = true;
+			needs_reload = true;
+		}
+	}
+
+	return needs_reload;
+}
+
+hotreload_modified_shaders :: () -> bool {
+    graphics_shaders := game.render_state.shader_manager.graphics_shaders;
+    compute_shaders := game.render_state.shader_manager.compute_shaders;
+
+	// TODO: SPEED: Maybe iter this across frames?
+	for * shader: graphics_shaders {
+		if shader.needs_recompile {
+			ok := reload_shader_pipeline(shader, force = true);
+			// defer_destroy(shader.pipeline); // Kinda leaky, but it's fine.
+			shader.needs_recompile = false;
+			bump_shader(shader);
+			return ok;
+		}
+	}
+
+	for * shader: compute_shaders {
+		if shader.needs_recompile {
+			ok := reload_shader_pipeline(shader, force = true);
+			// defer_destroy(shader.pipeline); // Kinda leaky, but it's fine.
+			shader.needs_recompile = false;
+			bump_shader(shader);
+			return ok;
+		}
+	}
+
+	return false;
+}
+
+
+Shader :: struct($T: Type) {
+	pipeline:                 *T;
+	pipeline_create_callback: (VkShaderModule) -> T;
+
+	file:            ShaderFile;
+	extra_files:     [] ShaderFile;
+	needs_recompile: bool;
+
+}
+
+ShaderFile :: struct {
 	path: string;
 
 	#if DEBUG {
@@ -20,12 +117,12 @@ Shader_File :: struct {
 	}
 }
 
-get_shader_file :: (path: string) -> Shader_File, bool {
+get_shader_file :: (path: string) -> ShaderFile, bool {
 	#if DEBUG {
 		modtime, size, ok := file_modtime_and_size(path);
 		if !ok then return .{}, false;
 
-		shader_file := Shader_File.{
+		shader_file := ShaderFile.{
 			path = path,
 			modtime = modtime,
 			size = size,
@@ -33,7 +130,7 @@ get_shader_file :: (path: string) -> Shader_File, bool {
 
 		return shader_file, true;
 	} else {
-		shader_file := Shader_File.{
+		shader_file := ShaderFile.{
 			path = path,
 		};
 
@@ -41,7 +138,7 @@ get_shader_file :: (path: string) -> Shader_File, bool {
 	}
 }
 
-bump_shader_file :: (file: *Shader_File) {
+bump_shader_file :: (file: *ShaderFile) {
 	#if DEBUG {
 		modtime, size, ok := file_modtime_and_size(file.path);
 		if !ok return;
@@ -75,7 +172,7 @@ is_outdated :: (shader: Shader) -> bool {
 	return false;
 }
 
-bump_shader :: (shader: *Shader) {
+bump_shader :: (shader: *Shader($T)) {
 	bump_shader_file(*shader.file);
 
 	for * shader.extra_files {
@@ -83,13 +180,13 @@ bump_shader :: (shader: *Shader) {
 	}
 }
 
-init_shader :: (path: string, pipeline_create_callback: ShaderCreatePipelineCallback) -> Shader, bool {
+init_shader :: ($T: Type, path: string, pipeline_create_callback: type_of(Shader(T).pipeline_create_callback)) -> Shader(T), bool {
 	assert(file_exists(path), "File doesn't exist, cannot init shader.");
 
 	shader_file := get_shader_file(path);
 	extra_files := get_dependency_shader_files(shader_file);
 
-	shader := Shader.{
+	shader := Shader(T).{
 		file                     = shader_file,
 		extra_files              = extra_files,
 		pipeline_create_callback = pipeline_create_callback,
@@ -114,7 +211,7 @@ get_cached_shader_path :: (filepath: string) -> string {
 	return builder_to_string(*builder);
 }
 
-reload_shader_pipeline :: (shader: *Shader, force := false) -> bool {
+reload_shader_pipeline :: (shader: *Shader($T), force := false) -> bool {
 	cached_path := get_cached_shader_path(shader.file.path);
 
 	use_cached_spirv := false;
@@ -145,8 +242,15 @@ reload_shader_pipeline :: (shader: *Shader, force := false) -> bool {
 	shader_module, ok := load_shader_module_from_bytes(code);
 	assert(ok, "Failed to load shaders.");
 
-	pipeline := shader.pipeline_create_callback(shader_module);
-	if pipeline == null then return false;
+    pipeline := cast(*T) alloc(size_of(T));
+	pipeline.* = shader.pipeline_create_callback(shader_module);
+
+	if pipeline.pipeline == null then return false;
+	if pipeline.layout == null then return false;
+
+    if shader.pipeline {
+        free(shader.pipeline);
+    }
 
 	shader.pipeline = pipeline;
 
@@ -215,7 +319,7 @@ safe_release :: (unknown: *Slang.ISlangUnknown) {
 	}
 }
 
-get_dependency_shader_files :: (file: Shader_File) -> [] Shader_File {
+get_dependency_shader_files :: (file: ShaderFile) -> [] ShaderFile {
 	using Slang;
 
 	session := init_slang_session();
@@ -228,7 +332,7 @@ get_dependency_shader_files :: (file: Shader_File) -> [] Shader_File {
 
 	count := IModule_getDependencyFileCount(module);
 
-	files := NewArray(count, Shader_File);
+	files := NewArray(count, ShaderFile);
 
 	for i: 0 .. count - 1 {
 		str := IModule_getDependencyFilePath(module, i);

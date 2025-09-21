@@ -34,9 +34,9 @@ Renderer :: struct {
 	allocator:             VmaAllocator;
 
 	// Draw resources
-	draw_image:    GPU_Image;
-	resolve_image: GPU_Image;
-	depth_image:   GPU_Image;
+	draw_image:    GPUImage;
+	resolve_image: GPUImage;
+	depth_image:   GPUImage;
 	draw_extent:   VkExtent2D;
 	msaa_samples:  VkSampleCountFlags;
 
@@ -55,6 +55,8 @@ Renderer :: struct {
 
     // Bindless
     bindless_system: Bindless_System;
+
+    current_pipeline: Pipeline;
 
 	limits: VkPhysicalDeviceLimits; // TODO: Too big?
 }

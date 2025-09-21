@@ -2,6 +2,188 @@ DEFAULT_VERTEX_ENTRY :: "vertex_main";
 DEFAULT_FRAGMENT_ENTRY :: "fragment_main";
 DEFAULT_COMPUTE_ENTRY :: "compute_main";
 
+create_pipeline_layout :: (
+	debug_name: string,
+	descriptor_set_layout: *VkDescriptorSetLayout,
+	$T: Type,
+	stage_flags: VkShaderStageFlags = .VERTEX_BIT | .FRAGMENT_BIT,
+	loc := #caller_location
+) -> VkPipelineLayout {
+	buffer_range := VkPushConstantRange.{
+		offset     = 0,
+		size       = size_of(T),
+		stageFlags = stage_flags,
+	};
+
+	pipeline_layout_info := init_pipeline_layout_create_info();
+    // #if T != void {
+        pipeline_layout_info.pPushConstantRanges = *buffer_range;
+        pipeline_layout_info.pushConstantRangeCount = 1;
+    // }
+	pipeline_layout_info.pSetLayouts = descriptor_set_layout;
+	pipeline_layout_info.setLayoutCount = xx ifx descriptor_set_layout != null then 1 else 0;
+
+	pipeline_layout: VkPipelineLayout;
+	vk_check(vkCreatePipelineLayout(r_ctx.device, *pipeline_layout_info, null, *pipeline_layout));
+
+	#if DEBUG {
+		debug_set_object_name(pipeline_layout, debug_name);
+	}
+
+	return pipeline_layout;
+}
+
+Pipeline :: struct {
+    layout: VkPipelineLayout;
+    pipeline: VkPipeline;
+    stages: VkShaderStageFlags;
+}
+
+GraphicsPipeline :: struct {
+    using common: Pipeline;
+    stages = .VERTEX_BIT | .FRAGMENT_BIT;
+}
+
+GraphicsPipelineDepth :: struct {
+    write_enabled: bool;
+    compare_op:    VkCompareOp;
+    format:        VkFormat;
+}
+
+create_graphics_pipeline :: (
+	name: string,
+	shader: VkShaderModule,
+	input_topology: VkPrimitiveTopology,
+	polygon_mode: VkPolygonMode,
+	front_face: VkFrontFace,
+	cull_mode: VkCullModeFlags,
+	depth: GraphicsPipelineDepth,
+	$push_constant: Type = void,
+	multisampling_samples: VkSampleCountFlags = ._1_BIT,
+	color_format: VkFormat = .UNDEFINED,
+	vertex_entry: string = DEFAULT_VERTEX_ENTRY,
+	fragment_entry: string = DEFAULT_FRAGMENT_ENTRY,
+    loc := #caller_location
+) -> GraphicsPipeline {
+    pipeline_layout: VkPipelineLayout;
+    pipeline: VkPipeline;
+    
+    {
+        pipeline_layout = create_pipeline_layout(name, *r_ctx.bindless_system.descriptor_layout, push_constant, loc = loc);
+    }
+
+    {
+        pipeline_builder := pb_init();
+        defer pb_free(pipeline_builder);
+
+        pipeline_builder.pipeline_layout = pipeline_layout;
+        pb_set_shaders(*pipeline_builder, shader, vertex_entry, fragment_entry);
+        pb_set_input_topology(*pipeline_builder, input_topology);
+        pb_set_polygon_mode(*pipeline_builder, polygon_mode);
+        pb_set_cull_mode(*pipeline_builder, cull_mode, front_face);
+        pb_set_multisampling(*pipeline_builder, multisampling_samples);
+
+        pb_disable_blending(*pipeline_builder);
+        
+        pb_enable_depthtest(*pipeline_builder, depth.write_enabled, depth.compare_op);
+        pb_set_depth_format(*pipeline_builder, depth.format);
+
+        if color_format == .UNDEFINED {
+            pb_disable_color_attachment(*pipeline_builder);
+        } else {
+            pb_set_color_attachment_format(*pipeline_builder, color_format);
+        }
+
+        pipeline = pb_build_pipeline(*pipeline_builder);
+
+        debug_set_object_name(pipeline, name);
+    }
+
+	return .{
+        layout = pipeline_layout,
+        pipeline = pipeline,
+    };
+}
+
+ComputePipeline :: struct {
+    using common: Pipeline;
+    stages = .COMPUTE_BIT;
+}
+
+create_compute_pipeline :: (
+	name: string,
+	shader: VkShaderModule,
+	$push_constant: Type = void,
+	entry: string = DEFAULT_COMPUTE_ENTRY,
+	loc := #caller_location
+) -> ComputePipeline {
+    pipeline_layout := create_pipeline_layout(name, *r_ctx.bindless_system.descriptor_layout, push_constant, .COMPUTE_BIT, loc = loc);
+
+	stage_info := VkPipelineShaderStageCreateInfo.{
+		sType  = .PIPELINE_SHADER_STAGE_CREATE_INFO,
+		stage  = .COMPUTE_BIT,
+		module = shader,
+		pName  = entry.data,
+	};
+
+	compute_pipeline_create_info := VkComputePipelineCreateInfo.{
+		sType  = .COMPUTE_PIPELINE_CREATE_INFO,
+		layout = pipeline_layout,
+		stage  = stage_info,
+	};
+
+	pipeline: VkPipeline;
+	vk_check(vkCreateComputePipelines(r_ctx.device, null, 1, *compute_pipeline_create_info, null, *pipeline), loc);
+
+	debug_set_object_name(pipeline, name);
+
+	return .{
+        layout = pipeline_layout,
+        pipeline = pipeline,
+    };
+}
+
+// ====================================================================
+
+load_shader_module :: (file_name: string) -> VkShaderModule, bool {
+	buffer, ok := read_entire_file(file_name);
+	if !ok {
+		return null, false;
+	}
+
+	defer free(buffer);
+
+	return load_shader_module_from_bytes(xx buffer), true;
+}
+
+load_shader_module_from_bytes :: (bytes: [] u8) -> VkShaderModule, bool {
+	// Byte length needs to be a multiple of 4
+	if bytes.count % 4 != 0 {
+		return null, false;
+	}
+
+	info := VkShaderModuleCreateInfo.{
+		sType    = .SHADER_MODULE_CREATE_INFO,
+		codeSize = xx bytes.count, // codeSize needs to be in bytes
+		pCode    = cast(*u32, bytes.data), // code needs to be in 32bit words
+	};
+
+	module: VkShaderModule;
+	if vkCreateShaderModule(r_ctx.device, *info, null, *module) != .SUCCESS {
+		return null, false;
+	}
+
+	return module, true;
+}
+
+destroy_shader_module :: (module: VkShaderModule) {
+	vkDestroyShaderModule(r_ctx.device, module, null);
+}
+
+
+//==============================================================
+
+
 PipelineBuilder :: struct {
 	shader_stages:           [..] VkPipelineShaderStageCreateInfo;
 	input_assembly:          VkPipelineInputAssemblyStateCreateInfo;
@@ -203,157 +385,3 @@ pb_free :: (builder: PipelineBuilder) {
 
 // ====================================================================
 
-create_pipeline_layout :: (
-	debug_name: string,
-	descriptor_set_layout: *VkDescriptorSetLayout,
-	$T: Type,
-	stage_flags: VkShaderStageFlags = .VERTEX_BIT | .FRAGMENT_BIT,
-	loc := #caller_location
-) -> VkPipelineLayout {
-	buffer_range := VkPushConstantRange.{
-		offset     = 0,
-		size       = size_of(T),
-		stageFlags = stage_flags,
-	};
-
-	pipeline_layout_info := init_pipeline_layout_create_info();
-    // #if T != void {
-        pipeline_layout_info.pPushConstantRanges = *buffer_range;
-        pipeline_layout_info.pushConstantRangeCount = 1;
-    // }
-	pipeline_layout_info.pSetLayouts = descriptor_set_layout;
-	pipeline_layout_info.setLayoutCount = xx ifx descriptor_set_layout != null then 1 else 0;
-
-	pipeline_layout: VkPipelineLayout;
-	vk_check(vkCreatePipelineLayout(r_ctx.device, *pipeline_layout_info, null, *pipeline_layout));
-
-	#if DEBUG {
-		debug_set_object_name(pipeline_layout, debug_name);
-	}
-
-	return pipeline_layout;
-}
-
-Pipeline :: struct {
-    pipeline: VkPipeline;
-    layout: VkPipelineLayout;
-}
-
-Graphics_Pipeline :: struct {
-    using common: Pipeline;
-}
-
-create_graphics_pipeline :: (
-	name: string,
-	pipeline_layout: VkPipelineLayout,
-	shader: VkShaderModule,
-	input_topology: VkPrimitiveTopology,
-	polygon_mode: VkPolygonMode,
-	front_face: VkFrontFace,
-	cull_mode: VkCullModeFlags,
-	depth: struct {
-		write_enabled: bool;
-		compare_op:    VkCompareOp;
-		format:        VkFormat;
-	},
-	multisampling_samples: VkSampleCountFlags = ._1_BIT,
-	color_format: VkFormat = .UNDEFINED,
-	vertex_entry: string = DEFAULT_VERTEX_ENTRY,
-	fragment_entry: string = DEFAULT_FRAGMENT_ENTRY
-) -> VkPipeline, bool {
-	pipeline_builder := pb_init();
-	defer pb_free(pipeline_builder);
-
-	pipeline_builder.pipeline_layout = pipeline_layout;
-	pb_set_shaders(*pipeline_builder, shader, vertex_entry, fragment_entry);
-	pb_set_input_topology(*pipeline_builder, input_topology);
-	pb_set_polygon_mode(*pipeline_builder, polygon_mode);
-	pb_set_cull_mode(*pipeline_builder, cull_mode, front_face);
-	pb_set_multisampling(*pipeline_builder, multisampling_samples);
-
-	pb_disable_blending(*pipeline_builder);
-	
-	pb_enable_depthtest(*pipeline_builder, depth.write_enabled, depth.compare_op);
-	pb_set_depth_format(*pipeline_builder, depth.format);
-
-	if color_format == .UNDEFINED {
-		pb_disable_color_attachment(*pipeline_builder);
-	} else {
-		pb_set_color_attachment_format(*pipeline_builder, color_format);
-	}
-
-	pipeline := pb_build_pipeline(*pipeline_builder);
-
-	debug_set_object_name(pipeline, name);
-
-	return pipeline, true;
-}
-
-Compute_Pipeline :: struct {
-    using common: Pipeline;
-}
-
-create_compute_pipelines :: (
-	name: string,
-	pipeline_layout: VkPipelineLayout,
-	shader: VkShaderModule,
-	entry: string = DEFAULT_COMPUTE_ENTRY,
-	loc := #caller_location
-) -> VkPipeline, bool {
-	stage_info := VkPipelineShaderStageCreateInfo.{
-		sType  = .PIPELINE_SHADER_STAGE_CREATE_INFO,
-		stage  = .COMPUTE_BIT,
-		module = shader,
-		pName  = entry.data,
-	};
-
-	compute_pipeline_create_info := VkComputePipelineCreateInfo.{
-		sType  = .COMPUTE_PIPELINE_CREATE_INFO,
-		layout = pipeline_layout,
-		stage  = stage_info,
-	};
-
-	pipeline: VkPipeline;
-	vk_check(vkCreateComputePipelines(r_ctx.device, null, 1, *compute_pipeline_create_info, null, *pipeline), loc);
-
-	debug_set_object_name(pipeline, name);
-
-	return pipeline, true;
-}
-
-// ====================================================================
-
-load_shader_module :: (file_name: string) -> VkShaderModule, bool {
-	buffer, ok := read_entire_file(file_name);
-	if !ok {
-		return null, false;
-	}
-
-	defer free(buffer);
-
-	return load_shader_module_from_bytes(xx buffer), true;
-}
-
-load_shader_module_from_bytes :: (bytes: [] u8) -> VkShaderModule, bool {
-	// Byte length needs to be a multiple of 4
-	if bytes.count % 4 != 0 {
-		return null, false;
-	}
-
-	info := VkShaderModuleCreateInfo.{
-		sType    = .SHADER_MODULE_CREATE_INFO,
-		codeSize = xx bytes.count, // codeSize needs to be in bytes
-		pCode    = cast(*u32, bytes.data), // code needs to be in 32bit words
-	};
-
-	module: VkShaderModule;
-	if vkCreateShaderModule(r_ctx.device, *info, null, *module) != .SUCCESS {
-		return null, false;
-	}
-
-	return module, true;
-}
-
-destroy_shader_module :: (module: VkShaderModule) {
-	vkDestroyShaderModule(r_ctx.device, module, null);
-}

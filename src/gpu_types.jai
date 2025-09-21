@@ -13,15 +13,15 @@ GPUSkeletonVertexAttribute :: struct @ShaderShared {
 }
 
 MeshBuffers :: struct {
-	index_buffer:  GPU_Buffer(u32);
+	index_buffer:  GPUBuffer(u32);
 	index_count:   u32;
-	vertex_buffer: GPU_Buffer(GPUVertex);
+	vertex_buffer: GPUBuffer(GPUVertex);
 	vertex_count:  u32;
 }
 
 SkelMeshBuffers :: struct {
 	using mesh_buffers:     MeshBuffers;
 
-	skel_vert_attrs_buffer: GPU_Buffer(GPUSkeletonVertexAttribute);
+	skel_vert_attrs_buffer: GPUBuffer(GPUSkeletonVertexAttribute);
 	attrs_count:            u32;
 }

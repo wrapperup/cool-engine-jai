@@ -1,10 +1,10 @@
 NUM_CASCADES: u32 : 3;
 
 GPUDrawPushConstants :: struct @ShaderShared {
-	global_data:    GPU_Ptr(GPUGlobalData);
-	vertex_buffer:  GPU_Ptr(GPUVertex);
-	model_matrices: GPU_Ptr(Mat4x4);
-	materials:      GPU_Ptr(GPU_PBR_Material);
+	global_data:    GPUPtr(GPUGlobalData);
+	vertex_buffer:  GPUPtr(GPUVertex);
+	model_matrices: GPUPtr(Mat4x4);
+	materials:      GPUPtr(GPU_PBR_Material);
 	model_index:    u32;
 	num_cascades:   u32;
 
@@ -15,24 +15,24 @@ GPUDrawPushConstants :: struct @ShaderShared {
 }
 
 GPUDrawShadowDepthPushConstants :: struct @ShaderShared {
-	vertex_buffer:  GPU_Ptr(GPUVertex);
-	model_matrices: GPU_Ptr(Mat4x4);
-	global_data:    GPU_Ptr(GPUGlobalData);
+	vertex_buffer:  GPUPtr(GPUVertex);
+	model_matrices: GPUPtr(Mat4x4);
+	global_data:    GPUPtr(GPUGlobalData);
 	model_index:    u32;
 	cascade_index:  u32;
 }
 
 GPUSkinningPushConstants :: struct @ShaderShared {
-	input_vertex_buffer:  GPU_Ptr(GPUVertex);
-	output_vertex_buffer: GPU_Ptr(GPUVertex);
-	joint_matrices:       GPU_Ptr(Mat4x4); // TODO: Make these Mat4x3 since they're just affine transforms.
-	attrs:                GPU_Ptr(GPUSkeletonVertexAttribute);
+	input_vertex_buffer:  GPUPtr(GPUVertex);
+	output_vertex_buffer: GPUPtr(GPUVertex);
+	joint_matrices:       GPUPtr(Mat4x4); // TODO: Make these Mat4x3 since they're just affine transforms.
+	attrs:                GPUPtr(GPUSkeletonVertexAttribute);
 	vertex_count:         u32;
 }
 
 GPUSkyboxPushConstants :: struct @ShaderShared {
-	vertex_buffer: GPU_Ptr(GPUVertex);
-	global_data:   GPU_Ptr(GPUGlobalData);
+	vertex_buffer: GPUPtr(GPUVertex);
+	global_data:   GPUPtr(GPUGlobalData);
 }
 
 GPUPostProcessingPushConstants :: struct @ShaderShared {
@@ -48,8 +48,8 @@ GPU_PBR_Material :: struct @ShaderShared {
 }
 
 GPUEnvironment :: struct @ShaderShared {
-	sh_volume:        GPU_Ptr(Sh_Coefficients);
-	point_lights:     GPU_Ptr(GPU_Point_Light);
+	sh_volume:        GPUPtr(ShCoefficients);
+	point_lights:     GPUPtr(GPU_Point_Light);
 	num_point_lights: u32;
 
     env_map:     ImageId; @ImageCube
@@ -66,8 +66,8 @@ GPUCascadeConfig :: struct @ShaderShared {
 GPUGlobalData :: struct @ShaderShared {
 	environment: GPUEnvironment;
 
-	cascade_world_to_shadows: GPU_Ptr(Mat4x4);
-	cascade_configs:          GPU_Ptr(GPUCascadeConfig);
+	cascade_world_to_shadows: GPUPtr(Mat4x4);
+	cascade_configs:          GPUPtr(GPUCascadeConfig);
 	view_to_clip:             Mat4x4;
 	world_to_view:			  Mat4x4;
 	sun_color:                Vec3;

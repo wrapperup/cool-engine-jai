@@ -1,4 +1,4 @@
-GPU_Image :: struct {
+GPUImage :: struct {
 	image:      VkImage;
 	view:       VkImageView;
 	allocation: VmaAllocation;
@@ -24,7 +24,7 @@ create_image :: (
 	flags: VkImageCreateFlags = 0,
 	alloc_flags: VmaAllocationCreateFlags = 0,
 	usage: VmaMemoryUsage = .GPU_ONLY
-) -> GPU_Image {
+) -> GPUImage {
 	img_alloc_info := VmaAllocationCreateInfo.{
 		usage         = usage,
 		requiredFlags = .DEVICE_LOCAL_BIT,
@@ -43,7 +43,7 @@ create_image :: (
 		tiling,
 	);
 
-	new_image := GPU_Image.{
+	new_image := GPUImage.{
 		extent       = extent,
 		format       = format,
 		mip_levels   = mip_levels,
@@ -56,7 +56,7 @@ create_image :: (
 	return new_image;
 }
 
-destroy_image :: (image: GPU_Image) {
+destroy_image :: (image: GPUImage) {
 	if image.view != null {
 		vkDestroyImageView(r_ctx.device, image.view, null);
 	}
@@ -64,7 +64,7 @@ destroy_image :: (image: GPU_Image) {
 }
 
 create_image_view :: (
-	image: *GPU_Image,
+	image: *GPUImage,
 	aspect_flags: VkImageAspectFlags,
 	view_type: VkImageViewType = ._2D,
 	base_mip_level: u32 = 0,

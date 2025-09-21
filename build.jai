@@ -289,7 +289,7 @@ TYPE_MAPPING_TABLE :: Type_Mapping.[
     .{ "Vector4", "Vec4" },
     .{ "Matrix4", "Mat4x4" },
     .{ "MaterialId", "u32" },
-    .{ "GPU_Ptr", "Ptr" },
+    .{ "GPUPtr", "Ptr" },
 ];
 
 RENAMABLE_TYPES :: Type_Mapping.[

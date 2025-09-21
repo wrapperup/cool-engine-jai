@@ -7,7 +7,7 @@ RESERVED_BINDLESS_IMAGES_COUNT :: 10;
 MAX_BINDLESS_SAMPLERS :: 32;
 
 Bindless_System :: struct {
-    images:   [..] GPU_Image;
+    images:   [..] GPUImage;
     samplers: [..] VkSampler;
 
 	descriptor_layout: VkDescriptorSetLayout;
@@ -51,7 +51,7 @@ get_identifier_name :: (name: Code) -> string {
 }
 
 // Aliases for picking the slang version of the type.
-add_image :: (image: GPU_Image) -> ImageId {
+add_image :: (image: GPUImage) -> ImageId {
     bindless_system := *r_ctx.bindless_system;
     image_id := cast(ImageId)bindless_system.images.count;
 
@@ -85,7 +85,7 @@ add_image :: (image: GPU_Image) -> ImageId {
 }
 
 // Writes a image to the bindless ID and updates the descriptor.
-set_image :: (image: GPU_Image, image_id: ImageId) -> bool {
+set_image :: (image: GPUImage, image_id: ImageId) -> bool {
 	resized := false;
 
 	bindless_system := *r_ctx.bindless_system;

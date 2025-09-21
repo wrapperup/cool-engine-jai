@@ -5,7 +5,7 @@ load_image_from_file :: (
 	out_width: *u32 = null,
 	out_height: *u32 = null,
 	out_depth: *u32 = null
-) -> GPU_Image {
+) -> GPUImage {
 	ktx_texture: *ktxTexture2;
 
 	ktx_result := ktxTexture2_CreateFromNamedFile(temp_c_string(filename), .LOAD_IMAGE_DATA_BIT, *ktx_texture);
@@ -107,11 +107,11 @@ load_image_from_bytes :: (
 	image_format: VkFormat,
 	image_type: VkImageType = ._2D,
 	image_view_type: VkImageViewType = ._2D
-) -> GPU_Image {
+) -> GPUImage {
 	image := create_image(image_format, extent, .SAMPLED_BIT | .TRANSFER_DST_BIT, image_type = image_type);
 	create_image_view(*image, .COLOR_BIT, image_view_type);
 
-	// Next, upload image data to vk GPU_Image
+	// Next, upload image data to vk GPUImage
 	staging := create_buffer(u8, bytes.count, .Staging);
 	defer destroy_buffer(staging);
 
@@ -141,7 +141,7 @@ load_image_from_bytes :: (
 
 write_buffer_to_ktx_file :: (
 	filename: string,
-	buffer: *GPU_Buffer,
+	buffer: *GPUBuffer,
 	extent: VkExtent3D,
 	format: VkFormat,
 	format_size: u32,

@@ -1,19 +1,19 @@
-GPU_Buffer :: struct($T: Type) #modify {
+GPUBuffer :: struct($T: Type) #modify {
 	return T != void, "Type must be sized.";
 } {
 	buffer:     VkBuffer;
 	allocation: VmaAllocation;
 	info:       VmaAllocationInfo;
-	ptr:        GPU_Ptr(T);
+	ptr:        GPUPtr(T);
 }
 
-GPU_Ptr :: struct($T: Type) {
+GPUPtr :: struct($T: Type) {
 	address: VkDeviceAddress;
 }
 
 // This is hopefully very common kinds of buffers
 // you may typically want to create. Uniform and Storage
-// buffers will always create a valid GPU_Ptr(T).
+// buffers will always create a valid GPUPtr(T).
 Buffer_Kind :: enum {
 	Storage;    // Includes ptr
 	Uniform;    // Includes ptr. However, prefer uniform access for speed.
@@ -40,7 +40,7 @@ create_buffer :: (
 	kind: Buffer_Kind = .Storage,
 	name := "",
 	loc := #caller_location
-) -> GPU_Buffer(T) {
+) -> GPUBuffer(T) {
 	alloc_size := size_of(T) * count;
 
 	vk_usage_flags, vma_create_flags := vk_buffer_flags(kind);
@@ -56,7 +56,7 @@ create_buffer :: (
 		flags = vma_create_flags,
 	};
 
-	new_buffer: GPU_Buffer(T);
+	new_buffer: GPUBuffer(T);
 	vk_check(vmaCreateBuffer(r_ctx.allocator, *buffer_info, *vma_alloc_info, *new_buffer.buffer, *new_buffer.allocation, *new_buffer.info), loc);
 
 	if vk_usage_flags & .SHADER_DEVICE_ADDRESS_BIT {
@@ -74,11 +74,11 @@ create_buffer :: (
 	return new_buffer;
 }
 
-destroy_buffer :: (allocated_buffer: GPU_Buffer) {
+destroy_buffer :: (allocated_buffer: GPUBuffer) {
 	vmaDestroyBuffer(r_ctx.allocator, allocated_buffer.buffer, allocated_buffer.allocation);
 }
 
-get_gpu_pointer :: (buffer: GPU_Buffer($T)) -> GPU_Ptr(T) {
+get_gpu_pointer :: (buffer: GPUBuffer($T)) -> GPUPtr(T) {
 	device_address_info := VkBufferDeviceAddressInfo.{
 		sType  = .BUFFER_DEVICE_ADDRESS_INFO,
 		buffer = buffer.buffer,
@@ -88,7 +88,7 @@ get_gpu_pointer :: (buffer: GPU_Buffer($T)) -> GPU_Ptr(T) {
 }
 
 // Writes to the buffer with the input data at offset.
-write_buffer :: (buffer: *GPU_Buffer, in_data: *$T, offset: s64 = 0, loc := #caller_location) {
+write_buffer :: (buffer: *GPUBuffer, in_data: *$T, offset: s64 = 0, loc := #caller_location) {
 	size := size_of(T);
 	assert(buffer.info.size >= cast(VkDeviceSize, size + offset), "The size of the data and offset is larger than the buffer", loc);
 
@@ -98,7 +98,7 @@ write_buffer :: (buffer: *GPU_Buffer, in_data: *$T, offset: s64 = 0, loc := #cal
 }
 
 // Writes to the buffer with the input array view at offset.
-write_buffer :: (buffer: *GPU_Buffer, in_data: []$T, offset: s64 = 0, loc := #caller_location) {
+write_buffer :: (buffer: *GPUBuffer, in_data: []$T, offset: s64 = 0, loc := #caller_location) {
 	size := size_of(T) * in_data.count;
 	assert(buffer.info.size >= cast(VkDeviceSize, size + offset), "The size of the slice and offset is larger than the buffer", loc);
 
@@ -108,7 +108,7 @@ write_buffer :: (buffer: *GPU_Buffer, in_data: []$T, offset: s64 = 0, loc := #ca
 }
 
 // Uploads the data via a staging buffer. This is useful if your buffer is GPU only.
-staging_write_buffer :: (buffer: *GPU_Buffer, in_data: *$T, offset: s64 = 0, loc := #caller_location) {
+staging_write_buffer :: (buffer: *GPUBuffer, in_data: *$T, offset: s64 = 0, loc := #caller_location) {
 	size := size_of(T);
 	assert(buffer.info.size >= cast(VkDeviceSize, size + offset), "The size of the data and offset is larger than the buffer", loc);
 
@@ -130,7 +130,7 @@ staging_write_buffer :: (buffer: *GPU_Buffer, in_data: *$T, offset: s64 = 0, loc
 }
 
 // Uploads the data via a staging buffer. This is useful if your buffer is GPU only.
-staging_write_buffer :: (buffer: *GPU_Buffer, in_data: []$T, offset: s64 = 0, loc := #caller_location) {
+staging_write_buffer :: (buffer: *GPUBuffer, in_data: []$T, offset: s64 = 0, loc := #caller_location) {
 	size := size_of(T) * in_data.count;
 	assert(buffer.info.size >= cast(VkDeviceSize, size + offset), "The size of the slice and offset is larger than the buffer", loc);
 
@@ -153,7 +153,7 @@ staging_write_buffer :: (buffer: *GPU_Buffer, in_data: []$T, offset: s64 = 0, lo
 
 transition_buffer :: (
 	cmd: VkCommandBuffer,
-	buffer: GPU_Buffer,
+	buffer: GPUBuffer,
 	src_flags: VkAccessFlags2,
 	dst_flags: VkAccessFlags2,
 	queue_family_index: u32
@@ -185,5 +185,5 @@ transition_buffer :: (
 // It's specific push/pop functions will update a buffer automatically,
 // and maps to a dynamic array.
 // GPUDynamicArray :: struct {
-//     using _: GPU_Buffer;
+//     using _: GPUBuffer;
 // }

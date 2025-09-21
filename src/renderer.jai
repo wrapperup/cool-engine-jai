@@ -5,10 +5,10 @@ RenderState :: struct {
 
 	scene_resources: struct {
 		materials:                    [..] GPU_PBR_Material;
-		materials_buffer:             GPU_Buffer(GPU_PBR_Material);
+		materials_buffer:             GPUBuffer(GPU_PBR_Material);
 
 		point_lights:                 [256] GPU_Point_Light;
-		point_light_buffer:           GPU_Buffer(GPU_Point_Light); // TODO: Maybe this is where we want to combine CPU/GPU buffers into 1?
+		point_light_buffer:           GPUBuffer(GPU_Point_Light); // TODO: Maybe this is where we want to combine CPU/GPU buffers into 1?
 	};
 
 	temp_resources: struct {
@@ -21,44 +21,39 @@ RenderState :: struct {
 		env_sampler:          SamplerId;
 	};
 	
-	shaders:        [..] Shader;
+    shader_manager: ShaderManager;
 	global_session: *Slang.IGlobalSession;
 
 	// Mesh pipelines
-	mesh_pipeline_layout: VkPipelineLayout;
-	mesh_shader:          ShaderId;
-	model_matrices:       [..] Mat4x4;
+	mesh_pipeline:  *GraphicsPipeline;
+	model_matrices: [..] Mat4x4;
 
 	// Skeletal mesh pipelines
-	skinning_pipeline_layout: VkPipelineLayout;
-	skinning_shader:          ShaderId;
+    skinning_pipeline: *ComputePipeline;
 
 	// Shadow pipelines
-	shadow_pipeline_layout:          VkPipelineLayout;
-	mesh_shadow_shader:              ShaderId;
-	shadow_depth_image:              GPU_Image;
+	mesh_shadow_pipeline:            GraphicsPipeline;
+	shadow_depth_image:              GPUImage;
 	shadow_depth_image_id:           ImageId;
 	shadow_depth_attach_image_views: [NUM_CASCADES]VkImageView;
 	cascade_world_to_shadows:        [NUM_CASCADES]Mat4x4;
 	cascade_configs:                 [NUM_CASCADES]GPUCascadeConfig;
 
 	// Tonemapper pipelines
-	tonemapper_shader:          ShaderId;
-	tonemapper_pipeline_layout: VkPipelineLayout;
+	tonemapper_pipeline: *ComputePipeline;
 
 	// Skybox pipelines
-	skybox_pipeline_layout: VkPipelineLayout;
-	skybox_shader:          ShaderId;
+	skybox_pipeline:          *GraphicsPipeline;
 	skybox_mesh:            MeshBuffers;
 	draw_skybox:            bool;
 }
 
 GameFrameData :: struct {
-	global_uniform_buffer:         GPU_Buffer(GPUGlobalData);
-	model_matrices_buffer:         GPU_Buffer(Mat4x4);
-	cascade_matrices_buffer:       GPU_Buffer(Mat4x4);
-	cascade_configs_buffer:        GPU_Buffer(GPUCascadeConfig);
-	test_preskinned_vertex_buffer: GPU_Buffer(GPUVertex);
+	global_uniform_buffer:         GPUBuffer(GPUGlobalData);
+	model_matrices_buffer:         GPUBuffer(Mat4x4);
+	cascade_matrices_buffer:       GPUBuffer(Mat4x4);
+	cascade_configs_buffer:        GPUBuffer(GPUCascadeConfig);
+	test_preskinned_vertex_buffer: GPUBuffer(GPUVertex);
 	mesh_draws:                    [..] MeshDraw;
 	skel_instances:                [..] *SkeletalMeshInstance;
 }
@@ -222,23 +217,15 @@ init_pipelines :: () {
 }
 
 init_mesh_pipelines :: () {
-	game.render_state.mesh_pipeline_layout = create_pipeline_layout(
-		"Basic_Mesh_Pipeline_Layout",
-		*r_ctx.bindless_system.descriptor_layout,
-		GPUDrawPushConstants,
-	);
-	defer_destroy(game.render_state.mesh_pipeline_layout);
-
-	game.render_state.mesh_shader = add_shader(
+	game.render_state.mesh_pipeline = add_graphics_shader(
 		"shaders/mesh.slang", 
 		module => create_graphics_pipeline(
 			name = "Basic_Mesh_Pipeline",
-			pipeline_layout = game.render_state.mesh_pipeline_layout,
 			shader = module,
 			input_topology = .TRIANGLE_LIST,
 			polygon_mode = .FILL,
-			cull_mode = .BACK_BIT,
 			front_face = .COUNTER_CLOCKWISE,
+            cull_mode = .BACK_BIT,
 			depth = .{
 				format = r_ctx.depth_image.format,
 				compare_op = .LESS_OR_EQUAL,
@@ -246,22 +233,15 @@ init_mesh_pipelines :: () {
 			},
 			color_format = r_ctx.draw_image.format,
 			multisampling_samples = msaa_samples(),
+            push_constant = GPUDrawPushConstants,
 		)
 	);
-	defer_destroy(game.render_state.mesh_shader);
+	// defer_destroy(game.render_state.mesh_pipeline);
 
-	game.render_state.shadow_pipeline_layout = create_pipeline_layout(
-		"Shadow_Depth_Pipeline_Layout",
-		*r_ctx.bindless_system.descriptor_layout,
-		GPUDrawShadowDepthPushConstants,
-	);
-	defer_destroy(game.render_state.shadow_pipeline_layout);
-
-	game.render_state.mesh_shadow_shader = add_shader(
+	game.render_state.mesh_shadow_pipeline = add_graphics_shader(
 		"shaders/shadow_depth.slang", 
 		module => create_graphics_pipeline(
 			name = "Shadow_Depth_Pipeline",
-			pipeline_layout = game.render_state.shadow_pipeline_layout,
 			shader = module,
 			vertex_entry = "vertex_main",
 			fragment_entry = "", // TODO: Only need vertex depth currently for shadow maps.
@@ -274,35 +254,25 @@ init_mesh_pipelines :: () {
 				compare_op = .LESS_OR_EQUAL,
 				write_enabled = true
 			},
+            push_constant = GPUDrawShadowDepthPushConstants,
 		)
 	);
-	defer_destroy(game.render_state.mesh_shadow_shader);
+	// defer_destroy(game.render_state.mesh_shadow_pipeline);
 }
 
 init_skinning_pipelines :: () {
-	game.render_state.skinning_pipeline_layout = create_pipeline_layout("Skinning", null, GPUSkinningPushConstants, .COMPUTE_BIT);
-	defer_destroy(game.render_state.skinning_pipeline_layout);
-
-	game.render_state.skinning_shader = add_shader(
+	game.render_state.skinning_pipeline = add_compute_shader(
 		"shaders/skinning.slang",
-		module => create_compute_pipelines("Skinning", game.render_state.skinning_pipeline_layout, module)
+		module => create_compute_pipeline("Skinning", module, GPUSkinningPushConstants)
 	);
-	defer_destroy(game.render_state.skinning_shader);
+	// defer_destroy(game.render_state.skinning_pipeline);
 }
 
 init_skybox_pipelines :: () {
-	game.render_state.skybox_pipeline_layout = create_pipeline_layout(
-		"Skybox_Pipeline_Layout",
-		*r_ctx.bindless_system.descriptor_layout,
-		GPUSkyboxPushConstants,
-	);
-	defer_destroy(game.render_state.skybox_pipeline_layout);
-
-	game.render_state.skybox_shader = add_shader(
+	game.render_state.skybox_pipeline = add_graphics_shader(
 		"shaders/skybox.slang", 
 		module => create_graphics_pipeline(
 			name = "Skybox_Pipeline",
-			pipeline_layout = game.render_state.skybox_pipeline_layout,
 			shader = module,
 			input_topology = .TRIANGLE_LIST,
 			polygon_mode = .FILL,
@@ -315,25 +285,22 @@ init_skybox_pipelines :: () {
 			},
 			color_format = r_ctx.draw_image.format,
 			multisampling_samples = msaa_samples(),
+            push_constant = GPUSkyboxPushConstants,
 		)
 	);
-	defer_destroy(game.render_state.skybox_shader);
+	// defer_destroy(game.render_state.skybox_pipeline);
 }
 
 init_tonemapper_pipelines :: () {
-	game.render_state.tonemapper_pipeline_layout = create_pipeline_layout(
-		"Tonemapper_Pipeline_Layout",
-		*r_ctx.bindless_system.descriptor_layout,
-        GPUPostProcessingPushConstants,
-        .COMPUTE_BIT,
-	);
-	defer_destroy(game.render_state.tonemapper_pipeline_layout);
-
-	game.render_state.tonemapper_shader = add_shader(
+	game.render_state.tonemapper_pipeline = add_compute_shader(
 		"shaders/tonemapping.slang", 
-		module => create_compute_pipelines("Tonemapper_Pipeline", game.render_state.tonemapper_pipeline_layout, module)
+		module => create_compute_pipeline(
+            "Tonemapper_Pipeline", 
+            module, 
+            GPUPostProcessingPushConstants,
+        )
 	);
-	defer_destroy(game.render_state.tonemapper_shader);
+	// defer_destroy(game.render_state.tonemapper_pipeline);
 }
 
 init_buffers :: () {
@@ -365,7 +332,7 @@ init_buffers :: () {
 	comp_coeffs := process_sh_coefficients_from_cubemap_file("assets/gen/test_cubemap_ld.ktx2");
 	// comp_coeffs := process_sh_coefficients_from_equirectangular_file("assets/gen/test_equirectangular.ktx2")
 
-	sh_volume_buf := create_buffer(Sh_Coefficients, kind = .Storage);
+	sh_volume_buf := create_buffer(ShCoefficients, kind = .Storage);
 	defer_destroy(sh_volume_buf);
 
 	staging_write_buffer(*sh_volume_buf, *comp_coeffs);
@@ -391,51 +358,6 @@ init_buffers :: () {
 	};
 
 	array_reserve(*game.render_state.model_matrices, 16_000);
-}
-
-get_shader :: (id: ShaderId) -> *Shader {
-	return *game.render_state.shaders[id];
-}
-
-add_shader :: (path: string, pipeline_create_callback: ShaderCreatePipelineCallback) -> ShaderId {
-	shader := init_shader(path, pipeline_create_callback);
-
-	id : ShaderId = xx game.render_state.shaders.count;
-	array_add(*game.render_state.shaders, shader);
-
-	return id;
-}
-
-defer_destroy :: (shader_id: ShaderId) {
-	defer_destroy(get_shader(shader_id).*);
-}
-
-check_shader_hotreload :: () -> bool {
-	needs_reload := false;
-	// TODO: SPEED: Maybe iter this across frames?
-	for * shader: game.render_state.shaders {
-		if is_outdated(shader) {
-			shader.needs_recompile = true;
-			needs_reload = true;
-		}
-	}
-
-	return needs_reload;
-}
-
-hotreload_modified_shaders :: () -> bool {
-	// TODO: SPEED: Maybe iter this across frames?
-	for * shader: game.render_state.shaders {
-		if shader.needs_recompile {
-			ok := reload_shader_pipeline(shader, force = true);
-			defer_destroy(shader.pipeline); // Kinda leaky, but it's fine.
-			shader.needs_recompile = false;
-			bump_shader(shader);
-			return ok;
-		}
-	}
-
-	return false;
 }
 
 draw :: () {
@@ -494,12 +416,8 @@ draw :: () {
 	}
 	// End shadow pass
 
-	// Clear
-	transition_image(cmd, r_ctx.draw_image.image, .UNDEFINED, .GENERAL);
-	background_pass(cmd);
-
 	// Begin mesh pass
-	transition_image(cmd, r_ctx.draw_image.image, .GENERAL, .COLOR_ATTACHMENT_OPTIMAL);
+	transition_image(cmd, r_ctx.draw_image.image, .UNDEFINED, .COLOR_ATTACHMENT_OPTIMAL);
 	transition_image(cmd, r_ctx.depth_image.image, .UNDEFINED, .DEPTH_ATTACHMENT_OPTIMAL);
 	transition_image(cmd, game.render_state.shadow_depth_image.image, .DEPTH_ATTACHMENT_OPTIMAL, .DEPTH_READ_ONLY_OPTIMAL);
 	if game.render_state.draw_skybox {
@@ -577,12 +495,10 @@ draw :: () {
 }
 
 skinning_pass :: (cmd: VkCommandBuffer, instance: *SkeletalMeshInstance) {
-	vkCmdBindPipeline(cmd, .COMPUTE, get_shader(game.render_state.skinning_shader).pipeline);
+	cmd_bind_pipeline(cmd, game.render_state.skinning_pipeline);
 
 	cmd_push_constants(
 		cmd,
-		game.render_state.skinning_pipeline_layout,
-		stages = .COMPUTE_BIT,
 		push_constants = GPUSkinningPushConstants.{
 			input_vertex_buffer = instance.skel.buffers.vertex_buffer.ptr,
 			output_vertex_buffer = instance.preskinned_vertex_buffers[current_frame_index()].ptr,
@@ -592,12 +508,12 @@ skinning_pass :: (cmd: VkCommandBuffer, instance: *SkeletalMeshInstance) {
 		}
 	);
 
-	vkCmdDispatch(cmd, xx ceil(cast(f32, instance.skel.buffers.vertex_count) / 64.0), 1, 1);
+	cmd_dispatch(cmd, xx ceil(cast(f32, instance.skel.buffers.vertex_count) / 64.0));
 }
 
 // TODO: Encode this as indirect draw args instead.
 MeshDraw :: struct {
-	vertex_buffer_address: GPU_Ptr(GPUVertex);
+	vertex_buffer_address: GPUPtr(GPUVertex);
 	index_buffer:          VkBuffer;
 	index_count:           u32;
 	model_index:           u32;
@@ -654,36 +570,28 @@ draw_skeletal_mesh :: (
 }
 
 shadow_map_pass :: (cmd: VkCommandBuffer, cascade: u32) {
-	image_view := game.render_state.shadow_depth_attach_image_views[cascade];
-	clear_value := VkClearValue.{depthStencil = .{depth = 1.0}};
-	depth_attachment := init_attachment_info(image_view, *clear_value, .DEPTH_ATTACHMENT_OPTIMAL);
+    area: VkExtent2D = .{
+        game.render_state.shadow_depth_image.extent.width, 
+        game.render_state.shadow_depth_image.extent.height
+    };
 
-	width := game.render_state.shadow_depth_image.extent.width;
-	height := game.render_state.shadow_depth_image.extent.height;
+	cmd_begin_rendering(cmd, .{
+        area = area,
+        depth_attachment = *init_attachment_info(
+            game.render_state.shadow_depth_attach_image_views[cascade],
+            *(VkClearValue.{depthStencil = .{depth = 1.0}}),
+            .DEPTH_ATTACHMENT_OPTIMAL,
+        ),
+    });
+	set_viewport_and_scissor(cmd, area);
 
-	render_info := init_rendering_info(.{width, height}, null, *depth_attachment);
-	vkCmdBeginRendering(cmd, *render_info);
-
-	set_viewport_and_scissor(cmd, game.render_state.shadow_depth_image.extent);
-
-	vkCmdBindPipeline(cmd, .GRAPHICS, get_shader(game.render_state.mesh_shadow_shader).pipeline);
-	vkCmdBindDescriptorSets(
-		cmd,
-		.GRAPHICS,
-		game.render_state.mesh_pipeline_layout,
-		0,
-		1,
-		*r_ctx.bindless_system.descriptor_set,
-		0,
-		null,
-	);
+	cmd_bind_pipeline(cmd, game.render_state.mesh_shadow_pipeline);
 
 	for mesh_draw: current_frame_game().mesh_draws {
 		vkCmdBindIndexBuffer(cmd, mesh_draw.index_buffer, 0, .UINT32);
 
 		cmd_push_constants(
 			cmd,
-			game.render_state.shadow_pipeline_layout,
 			GPUDrawShadowDepthPushConstants.{
 				vertex_buffer = mesh_draw.vertex_buffer_address,
 				model_matrices = current_frame_game().model_matrices_buffer.ptr,
@@ -693,56 +601,32 @@ shadow_map_pass :: (cmd: VkCommandBuffer, cascade: u32) {
 			}
 		);
 
-		vkCmdDrawIndexed(cmd, mesh_draw.index_count, 1, 0, 0, 0);
+		cmd_draw_indexed(cmd, mesh_draw.index_count);
 	}
 
-	vkCmdEndRendering(cmd);
-}
-
-background_pass :: (cmd: VkCommandBuffer) {
-	clear_color := VkClearColorValue.{
-		_float32 = .[0, 0, 0, 1],
-	};
-
-	clear_range := init_image_subresource_range(.COLOR_BIT);
-
-	vkCmdClearColorImage(cmd, r_ctx.draw_image.image, .GENERAL, *clear_color, 1, *clear_range);
+	cmd_end_rendering(cmd);
 }
 
 geometry_pass :: (cmd: VkCommandBuffer) {
-	// begin a render pass  connected to our draw image
-	color_attachment := init_attachment_info(r_ctx.draw_image.view, null, .GENERAL);
-	clear_value := VkClearValue.{depthStencil = .{depth = 1.0}};
-	depth_attachment := init_attachment_info(
-		r_ctx.depth_image.view,
-		*clear_value,
-		.DEPTH_ATTACHMENT_OPTIMAL,
-	);
-
-	// Start render pass.
-	render_info := init_rendering_info(r_ctx.draw_extent, *color_attachment, *depth_attachment);
-	vkCmdBeginRendering(cmd, *render_info);
+    cmd_begin_rendering(cmd, .{
+        area = r_ctx.draw_extent,
+        color_attachment = *init_attachment_info(r_ctx.draw_image.view, null, .GENERAL),
+        depth_attachment = *init_attachment_info(
+            r_ctx.depth_image.view,
+            *(VkClearValue.{depthStencil = .{depth = 1.0}}),
+            .DEPTH_ATTACHMENT_OPTIMAL,
+        ),
+    });
 
 	set_viewport_and_scissor(cmd, r_ctx.draw_extent);
 
-	vkCmdBindPipeline(cmd, .GRAPHICS, get_shader(game.render_state.mesh_shader).pipeline);
-	vkCmdBindDescriptorSets(
-		cmd,
-		.GRAPHICS,
-		game.render_state.mesh_pipeline_layout,
-		0,
-		1,
-		*r_ctx.bindless_system.descriptor_set,
-		0,
-		null,
-	);
+	cmd_bind_pipeline(cmd, game.render_state.mesh_pipeline);
 
 	for mesh_draw: current_frame_game().mesh_draws {
-		vkCmdBindIndexBuffer(cmd, mesh_draw.index_buffer, 0, .UINT32);
+		cmd_bind_index_buffer(cmd, mesh_draw.index_buffer, index_type = .UINT32);
 
 		cmd_push_constants(
 			cmd,
-			game.render_state.mesh_pipeline_layout,
 			GPUDrawPushConstants.{
 				global_data = current_frame_game().global_uniform_buffer.ptr,
 				vertex_buffer = mesh_draw.vertex_buffer_address,
@@ -758,10 +642,10 @@ geometry_pass :: (cmd: VkCommandBuffer) {
             }
 		);
 
-		vkCmdDrawIndexed(cmd, mesh_draw.index_count, 1, 0, 0, 0);
+		cmd_draw_indexed(cmd, mesh_draw.index_count);
 	}
 
-	vkCmdEndRendering(cmd);
+	cmd_end_rendering(cmd);
 }
 
 skybox_pass :: (cmd: VkCommandBuffer) {
@@ -780,61 +664,37 @@ skybox_pass :: (cmd: VkCommandBuffer) {
 
 	set_viewport_and_scissor(cmd, r_ctx.draw_extent);
 
-	vkCmdBindPipeline(cmd, .GRAPHICS, get_shader(game.render_state.skybox_shader).pipeline);
-	vkCmdBindDescriptorSets(
-		cmd,
-		.GRAPHICS,
-		game.render_state.skybox_pipeline_layout,
-		0,
-		1,
-		*r_ctx.bindless_system.descriptor_set,
-		0,
-		null,
-	);
+	cmd_bind_pipeline(cmd, game.render_state.skybox_pipeline);
+
 	vkCmdBindIndexBuffer(cmd, game.render_state.skybox_mesh.index_buffer.buffer, 0, .UINT32);
 
 	cmd_push_constants(
 		cmd,
-		game.render_state.skybox_pipeline_layout,
 		GPUSkyboxPushConstants.{
 			vertex_buffer = game.render_state.skybox_mesh.vertex_buffer.ptr,
 			global_data = current_frame_game().global_uniform_buffer.ptr,
 		},
 	);
 
-	vkCmdDrawIndexed(cmd, game.render_state.skybox_mesh.index_count, 1, 0, 0, 0);
-	vkCmdEndRendering(cmd);
+	cmd_draw_indexed(cmd, game.render_state.skybox_mesh.index_count);
+	cmd_end_rendering(cmd);
 }
 
 post_processing_pass :: (cmd: VkCommandBuffer) {
-	vkCmdBindPipeline(cmd, .COMPUTE, get_shader(game.render_state.tonemapper_shader).pipeline);
-	vkCmdBindDescriptorSets(
-		cmd,
-		.COMPUTE,
-		game.render_state.tonemapper_pipeline_layout,
-		0,
-		1,
-		*r_ctx.bindless_system.descriptor_set,
-		0,
-		null,
-	);
+	cmd_bind_pipeline(cmd, game.render_state.tonemapper_pipeline);
 
 	cmd_push_constants(
 		cmd,
-		game.render_state.tonemapper_pipeline_layout,
 		GPUPostProcessingPushConstants.{
             resolved_image = game.render_state.temp_resources.resolved_image,
             tony_mc_mapface = game.render_state.temp_resources.tony_mc_mapface,
             sampler = game.render_state.temp_resources.default_sampler,
 		},
-        .COMPUTE_BIT,
 	);
 
-	vkCmdDispatch(
-		cmd,
+	cmd_dispatch(cmd,
 		xx (ceil(cast(f32, r_ctx.draw_extent.width) / 16.0)),
 		xx (ceil(cast(f32, r_ctx.draw_extent.height) / 16.0)),
-		1,
 	);
 }
 

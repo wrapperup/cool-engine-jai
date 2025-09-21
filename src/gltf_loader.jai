@@ -370,8 +370,8 @@ load_skel_mesh_from_file :: (path: string, loc := #caller_location) -> Skeleton,
 }
 
 defer_destroy :: (gpu_mesh: SkelMeshBuffers) {
-	defer_destroy(gpu_mesh.mesh_buffers);
-	defer_destroy(gpu_mesh.skel_vert_attrs_buffer);
+    defer_destroy(gpu_mesh.mesh_buffers);
+    defer_destroy(gpu_mesh.skel_vert_attrs_buffer);
 }
 
 // Creates the buffers, but doesn't fill them.

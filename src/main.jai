@@ -178,14 +178,14 @@ main :: () {
 
 		grid_size := 3;
 
-		for i: 0 .. grid_size-1 {
-			for j: 0 .. grid_size-1 {
-				for k: 0 .. grid_size-1 {
-					ball := new_entity(Ball);
-					init(ball, .{xx (i * 3), xx (j * 3), xx (k * 3)}, skel_ptr, anim_ptr);
-				}
-			}
-		}
+		// for i: 0 .. grid_size-1 {
+		// 	for j: 0 .. grid_size-1 {
+		// 		for k: 0 .. grid_size-1 {
+		// 			ball := new_entity(Ball);
+		// 			init(ball, .{xx (i * 3), xx (j * 3), xx (k * 3)}, skel_ptr, anim_ptr);
+		// 		}
+		// 	}
+		// }
 
 		ball := new_entity(Ball);
 		init(ball, .{0, 0, 0}, skel_ptr, anim_ptr);
